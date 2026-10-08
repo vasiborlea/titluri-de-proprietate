@@ -15,6 +15,11 @@ service cloud.firestore {
       allow read, write: if allowed();
     }
 
+    // Scanurile PDF (bucăți base64), tot doar pentru conturile din listă.
+    match /scans/{id} {
+      allow read, write: if allowed();
+    }
+
     match /{document=**} {
       allow read, write: if false;
     }

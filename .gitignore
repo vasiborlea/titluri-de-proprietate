@@ -5,4 +5,5 @@ netlify/functions/probe.txt
 .netlify/
 node_modules/
 firebase-debug.log
+storage.rules
 .netlify/

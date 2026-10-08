@@ -9,7 +9,6 @@
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-storage-compat.js"></script>
 <style>
   :root{
     --paper:#F3F4F1; --card:#FFFFFF; --ink:#23302B; --ink-soft:#5C6B62;
@@ -815,7 +814,7 @@ async function deleteTitleRecord(id){
   if(signedIn){
     const t = titles.find(x=>x.id===id);
     await fbDb.collection('titles').doc(id).delete();
-    if(t && t.pdfPath){ try{ await fbStorage.ref(t.pdfPath).delete(); }catch(e){ /* scanul poate lipsi deja */ } }
+    if(t && t.pdfParts){ await deleteScanParts(id, t.pdfParts); }
     return;
   }
   const db = await getDB();
@@ -849,7 +848,7 @@ async function setSetting(key, value){
 // Configurarea Firebase vine de la server (/api/config), din variabila Netlify FIREBASE_CONFIG.
 // Datele titlurilor stau în Firestore (colecția "titles"), scanurile PDF în Storage ("scans/..").
 // Accesul îl limitează regulile din firestore.rules / storage.rules (listă de e-mailuri).
-let fbAuth = null, fbDb = null, fbStorage = null;
+let fbAuth = null, fbDb = null;
 let signedIn = false;
 let userEmail = '';
 let authStatusNote = '';
@@ -889,7 +888,6 @@ async function initFirebase(){
   if(!firebase.apps.length) firebase.initializeApp(fc);
   fbAuth = firebase.auth();
   fbDb = firebase.firestore();
-  fbStorage = firebase.storage();
   if(!authListenerAttached){
     authListenerAttached = true;
     fbAuth.onAuthStateChanged(async (user)=>{
@@ -937,11 +935,39 @@ function titleToDoc(t){
   return JSON.parse(JSON.stringify(d));
 }
 
-async function getScanBlob(path){
-  const url = await fbStorage.ref(path).getDownloadURL();
-  const res = await fetch(url);
-  if(!res.ok) throw new Error(`Nu am putut citi scanul (${res.status})`);
-  return res.blob();
+// Scanurile PDF se păstrează în Firestore (colecția "scans"), împărțite în bucăți base64 sub limita de 1 MiB/document,
+// ca să rămânem pe planul gratuit (Firebase Storage cere planul Blaze cu card).
+const SCAN_CHUNK_CHARS = 700000;
+const SCAN_MAX_BYTES = 8 * 1024 * 1024;
+
+async function saveScanParts(id, blob){
+  const b64 = await fileToBase64(blob);
+  const parts = Math.ceil(b64.length / SCAN_CHUNK_CHARS);
+  for(let i = 0; i < parts; i++){
+    await fbDb.collection('scans').doc(`${id}_${i}`).set({
+      titleId: id, n: i, data: b64.slice(i * SCAN_CHUNK_CHARS, (i + 1) * SCAN_CHUNK_CHARS)
+    });
+  }
+  return parts;
+}
+
+async function getScanBlob(id, parts){
+  let b64 = '';
+  for(let i = 0; i < parts; i++){
+    const d = await fbDb.collection('scans').doc(`${id}_${i}`).get();
+    if(!d.exists) throw new Error('Scan incomplet.');
+    b64 += d.data().data;
+  }
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for(let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], {type: 'application/pdf'});
+}
+
+async function deleteScanParts(id, parts){
+  for(let i = 0; i < parts; i++){
+    try{ await fbDb.collection('scans').doc(`${id}_${i}`).delete(); }catch(e){ /* poate lipsi deja */ }
+  }
 }
 // ---------- end Firebase ----------
 
@@ -972,10 +998,12 @@ async function saveTitle(title){
   if(signedIn){
     try{
       if(!title.id) title.id = uid();
-      if(title.pdfBlob && !title.pdfPath){
-        const path = `scans/${title.id}.pdf`;
-        await fbStorage.ref(path).put(title.pdfBlob, {contentType: 'application/pdf'});
-        title.pdfPath = path;
+      if(title.pdfBlob && !title.pdfParts){
+        if(title.pdfBlob.size > SCAN_MAX_BYTES){
+          alert('Scanul PDF are peste 8 MB și nu a fost salvat (datele titlului se salvează normal).');
+        }else{
+          title.pdfParts = await saveScanParts(title.id, title.pdfBlob);
+        }
       }
       await fbDb.collection('titles').doc(title.id).set(titleToDoc(title));
     }catch(e){
@@ -1249,17 +1277,17 @@ function openModal(id, opts={}){
   document.getElementById('btnDelete').classList.toggle('hidden', !t);
 
   document.getElementById('batchBanner').classList.toggle('hidden', !opts.batch);
-  document.getElementById('modalBox').classList.toggle('wide', !!opts.batch || !!(t && (t.pdfBlob || t.pdfPath)));
+  document.getElementById('modalBox').classList.toggle('wide', !!opts.batch || !!(t && (t.pdfBlob || t.pdfParts)));
   document.getElementById('btnSubmitLabel').textContent = opts.batch ? 'Salvează acum (opțional — se salvează automat)' : 'Salvează';
   document.getElementById('btnAttachPdf').classList.toggle('hidden', !!opts.batch);
   showAutofillStatus('', null);
   lastExtractionResult = null;
   if(t && t.pdfBlob){
     renderPdfPreview(t.pdfBlob);
-  }else if(t && t.pdfPath && signedIn){
+  }else if(t && t.pdfParts && signedIn){
     document.getElementById('pdfPreviewPane').classList.remove('hidden');
     document.getElementById('pdfPreviewPane').innerHTML = '<div class="pdf-loading">Se aduce scanul...</div>';
-    getScanBlob(t.pdfPath).then(blob=>renderPdfPreview(blob)).catch(()=>{
+    getScanBlob(t.id, t.pdfParts).then(blob=>renderPdfPreview(blob)).catch(()=>{
       document.getElementById('pdfPreviewPane').innerHTML = '<div class="pdf-loading">Nu am putut aduce scanul.</div>';
     });
   }else if(!opts.batch){
@@ -1354,7 +1382,7 @@ function gatherFormData(){
     observatii: val('f_observatii'),
     parcele,
     pdfBlob: currentPreviewFile || existing?.pdfBlob || undefined,
-    pdfPath: existing?.pdfPath || undefined,
+    pdfParts: existing?.pdfParts || undefined,
     extractionStatus: lastExtractionResult ? (lastExtractionResult.ok ? 'ok' : 'eroare') : (existing?.extractionStatus),
     extractionError: lastExtractionResult ? (lastExtractionResult.ok ? '' : lastExtractionResult.message) : (existing?.extractionError)
   };
