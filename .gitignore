@@ -1,0 +1,6 @@
+/extract.mjs
+netlify/functions/probe.txt
+.env
+.env.*
+.netlify/
+node_modules/

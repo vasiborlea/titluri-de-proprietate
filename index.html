@@ -1,0 +1,1811 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Registrul titlurilor de proprietate</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+  :root{
+    --paper:#F3F4F1; --card:#FFFFFF; --ink:#23302B; --ink-soft:#5C6B62;
+    --moss:#4B6B4A; --moss-soft:#8FA88C; --rust:#9C3F2E; --gold:#F3911A;
+    --line: rgba(35,48,43,0.12); --line-strong: rgba(35,48,43,0.28);
+    --serif: "Iowan Old Style","Palatino Linotype", Georgia, serif;
+    --mono: Consolas, "Courier New", monospace;
+  }
+  *{box-sizing:border-box;}
+  html,body{margin:0;padding:0;}
+  body{
+    background:var(--paper);
+    color:var(--ink); font-family:var(--serif); min-height:100vh;
+  }
+  header{
+    display:flex; align-items:center; justify-content:space-between;
+    padding:16px 32px; border-bottom:3px double var(--line-strong);
+    background: var(--card);
+    box-shadow: 0 2px 6px rgba(35,48,43,0.1);
+  }
+  .brand{display:flex; align-items:center; gap:16px;}
+  .logo-plate{
+    width:180px; height:180px;
+    display:flex; align-items:center; justify-content:center; flex-shrink:0;
+  }
+  .brand img{height:78px; width:auto; display:block;}
+  .brand-divider{width:1px; height:40px; background:var(--line-strong);}
+  header h1{margin:0; font-size:22px; font-weight:600; letter-spacing:0.2px;}
+  header .sub{font-family:var(--mono); font-size:12px; color:var(--ink-soft); margin-top:3px;}
+  .head-actions{display:flex; gap:10px; align-items:center;}
+  .drive-header-box{display:flex; align-items:center; gap:8px; font-family:var(--mono); font-size:11px; color:var(--ink-soft); margin-right:6px;}
+  .drive-header-box.connected .drive-header-text{color:var(--moss); font-weight:600;}
+  .drive-header-box.connected #btnHeaderConnect{display:none;}
+  button{
+    font-family:var(--mono); font-size:13px; cursor:pointer; border:1px solid var(--line-strong);
+    background:var(--card); color:var(--ink); padding:9px 14px; border-radius:4px;
+    box-shadow: 0 2px 0 var(--line-strong), 0 3px 4px rgba(35,48,43,0.12), inset 0 1px 0 rgba(255,255,255,0.6);
+    transition: transform .06s ease, box-shadow .06s ease;
+  }
+  button:hover{background:#eef0ec;}
+  button:active{
+    transform: translateY(2px);
+    box-shadow: 0 0 0 var(--line-strong), inset 0 2px 3px rgba(35,48,43,0.25);
+  }
+  button.primary{background:var(--moss); color:#fff; border-color:#3c5a3b; box-shadow: 0 2px 0 #33492f, 0 3px 5px rgba(35,48,43,0.25), inset 0 1px 0 rgba(255,255,255,0.25);}
+  button.primary:hover{background:#547d53;}
+  button.primary:active{box-shadow: 0 0 0 #33492f, inset 0 2px 3px rgba(0,0,0,0.3);}
+  button.danger{background:transparent; color:var(--rust); border-color:var(--rust); box-shadow:none;}
+  button.danger:hover{background:var(--rust); color:#fff;}
+  button.ghost{background:var(--card);}
+  button.small{padding:4px 9px; font-size:11px;}
+
+  .layout{display:flex; align-items:flex-start; max-width:1240px; margin:0 auto; padding:24px 32px 60px;}
+  aside.filters{width:250px; flex-shrink:0; margin-right:26px; background:var(--card); border:1px solid var(--line-strong); padding:18px; position:sticky; top:20px;}
+  aside.filters h2{font-size:12px; margin:0 0 14px 0; font-family:var(--mono); color:var(--ink-soft); border-bottom:1px solid var(--line); padding-bottom:8px;}
+  .filter-group{margin-bottom:16px;}
+  .filter-group label{display:block; font-family:var(--mono); font-size:11px; color:var(--ink-soft); margin-bottom:5px;}
+  select, input[type="text"], input[type="number"], input[type="date"], input[type="password"], textarea{
+    width:100%; font-family:var(--mono); font-size:13px; color:var(--ink); background:#FFFFFF;
+    border:1px solid var(--line-strong); padding:7px 8px; border-radius:2px;
+  }
+  .date-row{display:flex; gap:6px; align-items:center;}
+  .date-row span{font-family:var(--mono); font-size:11px; color:var(--ink-soft);}
+  .filter-reset{width:100%; margin-top:4px;}
+  .filter-note{font-family:var(--mono); font-size:10.5px; color:var(--ink-soft); margin-top:5px; line-height:1.4;}
+
+  main{flex:1; min-width:0;}
+  .searchbar input{width:100%; padding:12px 14px; font-size:15px; font-family:var(--serif); border:1px solid var(--line-strong); background:var(--card);}
+  .results-meta{font-family:var(--mono); font-size:12px; color:var(--ink-soft); margin:12px 0; display:flex; justify-content:space-between;}
+  .sort-select{font-family:var(--mono); font-size:12px; border:1px solid var(--line-strong); background:var(--card); padding:4px 6px;}
+
+  .card{background:var(--card); border:1px solid var(--line); border-left:5px solid var(--moss-soft); margin-bottom:12px;}
+  .card .head-row{display:flex; justify-content:space-between; align-items:flex-start; padding:14px 16px 10px; cursor:pointer;}
+  .card .head-row:hover{background:rgba(255,255,255,0.4);}
+  .titlu-nr{font-family:var(--mono); font-weight:700; font-size:13px; color:var(--ink-soft);}
+  .cetatean-line{font-size:17px; margin-top:2px;}
+  .mostenitori-line{font-family:var(--mono); font-size:11.5px; color:var(--ink-soft); margin-top:3px;}
+  .meta-line{font-family:var(--mono); font-size:12px; color:var(--ink-soft); margin-top:6px;}
+  .totals{text-align:right; white-space:nowrap; padding-left:14px;}
+  .totals .sup{font-family:var(--mono); font-weight:700;}
+  .totals .data{font-family:var(--mono); font-size:11px; color:var(--ink-soft); margin-top:4px;}
+  .del-btn{border:none; background:transparent; color:var(--ink-soft); font-family:var(--mono); font-size:15px; padding:0 4px;}
+  .del-btn:hover{color:var(--rust);}
+
+  .parcele-wrap{overflow-x:auto; border-top:1px solid var(--line);}
+  .parcele-table{width:100%; border-collapse:collapse; font-family:var(--mono); font-size:11.5px; min-width:760px;}
+  .parcele-table th{text-align:left; font-weight:600; color:var(--ink-soft); padding:6px 8px; border-bottom:1px solid var(--line); white-space:nowrap;}
+  .parcele-table td{padding:6px 8px; border-bottom:1px solid var(--line); vertical-align:top;}
+  .nrcrt-badge{display:inline-block; background:var(--moss); color:#fff; font-weight:700; border-radius:2px; padding:1px 6px; margin-right:6px; font-size:11px;}
+  .cat-name{font-weight:600;}
+  .tip-tag{font-size:10px; color:var(--ink-soft); border:1px solid var(--line-strong); border-radius:2px; padding:0 4px; margin-left:6px;}
+  .vecin-grid{display:grid; grid-template-columns:auto 1fr; gap:1px 6px; font-size:11px;}
+  .vecin-grid b{color:var(--ink-soft); font-weight:600;}
+  .no-parcele{padding:10px 16px; font-size:12px; color:var(--ink-soft); font-family:var(--mono);}
+
+  .parcel-result{background:var(--card); border:1px solid var(--line); border-left:5px solid var(--gold); margin-bottom:10px; padding:12px 16px; cursor:pointer;}
+  .parcel-result:hover{border-color:var(--line-strong);}
+  .parcel-result .top{display:flex; justify-content:space-between; align-items:baseline; margin-bottom:6px;}
+  .parcel-result .sup{font-family:var(--mono); font-weight:700; font-size:14px;}
+  .parcel-result .from-titlu{font-family:var(--mono); font-size:11px; color:var(--ink-soft); margin-top:8px; border-top:1px dashed var(--line); padding-top:6px;}
+
+  .empty{text-align:center; padding:60px 20px; color:var(--ink-soft); font-family:var(--mono); font-size:13px; border:1px dashed var(--line-strong); background:var(--card);}
+
+  .modal-overlay{position:fixed; inset:0; background:rgba(35,48,43,0.45); display:flex; align-items:flex-start; justify-content:center; padding:30px 16px; overflow-y:auto; z-index:50;}
+  .modal-overlay.hidden{display:none;}
+  .modal{background:var(--paper); border:1px solid var(--line-strong); max-width:920px; width:100%; padding:26px 30px 24px;}
+  .modal.wide{max-width:1280px;}
+  .batch-banner{display:flex; justify-content:space-between; align-items:center; background:var(--gold); color:#fff; font-family:var(--mono); font-size:12px; padding:8px 14px; margin:-26px -30px 18px -30px;}
+  .batch-banner .right{display:flex; gap:8px;}
+  .batch-banner button{background:rgba(255,255,255,0.15); color:#fff; border-color:rgba(255,255,255,0.5); padding:4px 10px; font-size:11px;}
+  .batch-banner button:hover{background:rgba(255,255,255,0.3);}
+  .modal-body{display:flex; gap:22px; align-items:flex-start;}
+  .modal-body .form-col{flex:1; min-width:0;}
+  #pdfPreviewPane{width:360px; flex-shrink:0; border:1px solid var(--line-strong); background:#fff; max-height:80vh; overflow-y:auto; padding:8px;}
+  #pdfPreviewPane canvas{width:100%; display:block; margin-bottom:8px; border:1px solid var(--line); cursor:zoom-in;}
+  #pdfPreviewPane .pdf-loading{font-family:var(--mono); font-size:12px; color:var(--ink-soft); padding:20px; text-align:center;}
+
+  .lightbox-overlay{position:fixed; inset:0; background:rgba(15,20,18,0.92); z-index:100; display:flex; flex-direction:column;}
+  .lightbox-overlay.hidden{display:none;}
+  .lightbox-toolbar{display:flex; justify-content:center; gap:10px; padding:10px; background:rgba(0,0,0,0.3);}
+  .lightbox-toolbar button{background:var(--card); font-size:16px; padding:6px 14px;}
+  #lightboxCanvases{flex:1; overflow:auto; text-align:center; padding:20px;}
+  #lightboxCanvases canvas{max-width:none; border:1px solid rgba(255,255,255,0.2); margin-bottom:16px;}
+  #lightboxCanvases .pdf-loading{color:#fff; font-family:var(--mono); padding:40px;}
+
+  .view-tabs{display:flex; gap:8px; margin-bottom:14px;}
+  .view-tabs button{background:var(--card);}
+  .view-tabs button.active{background:var(--moss); color:#fff; border-color:#3c5a3b; box-shadow: 0 2px 0 #33492f, inset 0 1px 0 rgba(255,255,255,0.25);}
+  .error-badge{background:var(--rust); color:#fff; border-radius:10px; padding:0 7px; font-size:11px; margin-left:6px;}
+  .error-badge.zero{background:var(--line-strong);}
+  .error-card{background:var(--card); border:1px solid var(--line); border-left:5px solid var(--rust); margin-bottom:10px; padding:12px 16px;}
+  .error-card .top{display:flex; justify-content:space-between; align-items:baseline;}
+  .error-card .msg{font-family:var(--mono); font-size:12px; color:var(--rust); margin-top:6px;}
+  .error-card .actions{margin-top:10px; display:flex; gap:8px;}
+
+  .obs-check-row{display:inline-flex; align-items:center; gap:5px; margin:2px 10px 2px 0; cursor:pointer;}
+  .obs-check-row input{margin:0; cursor:pointer;}
+
+  .folder-match-card{background:var(--card); border:1px solid var(--gold); border-left:5px solid var(--gold); margin-bottom:10px; padding:12px 16px; display:flex; justify-content:space-between; align-items:center;}
+  .folder-match-card .info{font-family:var(--mono); font-size:12px; color:var(--ink-soft);}
+  .folder-match-card .info b{color:var(--ink); font-family:var(--serif); font-size:14px;}
+
+  .bulk-bar{display:none; align-items:center; gap:10px; background:var(--gold); color:#fff; padding:8px 14px; margin-bottom:10px; font-family:var(--mono); font-size:12px;}
+  .bulk-bar.visible{display:flex;}
+  .bulk-bar button{background:rgba(255,255,255,0.15); color:#fff; border-color:rgba(255,255,255,0.5); padding:5px 12px; font-size:11px;}
+  .bulk-bar button:hover{background:rgba(255,255,255,0.3);}
+  .select-all-row{display:flex; align-items:center; gap:8px; font-family:var(--mono); font-size:12px; color:var(--ink-soft); margin-bottom:8px;}
+  .row-checkbox{width:16px; height:16px; flex-shrink:0; margin-right:10px; margin-top:3px; cursor:pointer;}
+  .card .head-row{align-items:flex-start;}
+  .card .head-row .checkbox-col{padding-top:2px;}
+  .parcel-result{position:relative;}
+  .parcel-result .checkbox-col{position:absolute; left:-2px; top:12px;}
+  .parcel-result{padding-left:38px;}
+  .modal h2{margin:0 0 16px 0; font-size:19px;}
+  .form-grid{display:grid; grid-template-columns:1fr 1fr 1fr; gap:12px 14px;}
+  .form-grid .full{grid-column:1/-1;}
+  .form-grid label{display:block; font-family:var(--mono); font-size:11px; color:var(--ink-soft); margin-bottom:4px;}
+  textarea{resize:vertical; min-height:44px; font-family:var(--serif);}
+
+  .parcele-section{margin-top:22px; border-top:1px solid var(--line); padding-top:16px;}
+  .parcele-section h3{font-size:14px; margin:0 0 10px 0; display:flex; justify-content:space-between; align-items:center;}
+  .parcele-editor{overflow-x:auto;}
+  .parcela-row{display:grid; grid-template-columns:110px 150px 70px 70px 90px 90px 90px 90px 90px 200px 26px; gap:6px; align-items:start; margin-bottom:6px; padding-bottom:6px; border-bottom:1px dashed var(--line);}
+  .parcela-row input, .parcela-row select{font-size:11.5px; padding:5px 6px;}
+  .parcela-row .row-del{border:none; background:transparent; color:var(--ink-soft); cursor:pointer; font-size:14px; padding:4px;}
+  .parcela-row .row-del:hover{color:var(--rust);}
+  .parcela-headers{display:grid; grid-template-columns:110px 150px 70px 70px 90px 90px 90px 90px 90px 200px 26px; gap:6px; font-family:var(--mono); font-size:10px; color:var(--ink-soft); margin-bottom:6px;}
+  .totals-line{font-family:var(--mono); font-size:12px; color:var(--ink-soft); margin-top:10px;}
+
+  .modal-actions{display:flex; justify-content:space-between; margin-top:22px; padding-top:16px; border-top:1px solid var(--line);}
+  .modal-actions .right{display:flex; gap:8px;}
+  .hidden{display:none !important;}
+
+  @media (max-width: 900px){
+    .layout{flex-direction:column;}
+    aside.filters{width:100%; position:static; margin-right:0; margin-bottom:18px;}
+    .form-grid{grid-template-columns:1fr;}
+    header{flex-direction:column; align-items:flex-start; gap:10px;}
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">
+    <div class="logo-plate"><img src="data:image/png;base64,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FDJ/8MqVK61tVUWec9myZQAKLUoiwmWXXWbVL/hfOXNXsHX53XffheRXFiIwZWhpqbIEBxYF512ZtiDvE5HfO3P27FksWrSIZD1LQl734EUUiAgrV67EoUOHSFEUuToYLV++POReBcdJlIQ851dffUWnTp0KKVtV6iYnngkOxrJlGFIwQgXIgLPbjULrdDUo7wygRQCebHiW3AfS/YuUoAJtiqkFTANQNPgOriDfj29AxCbBmfwShFBRb8eK2f0FUB+StFSefPLJEEumefPm5Ha7YZomsrKy0LRp05C+vqIWV9EkLcwVK1bUmMUjk7RI//73v5dYhppYD5iIsHz5cqvsFVlTVr7Ujx8/TpGRkSFlHTRoULnnLS9JK61bt24heScmJpLb7Q4pg/w3Ly8PrVu3Dtm/W7duJGf/qko5ZN4ej6dCFrDc/8yZM2jUqFGNWYjB93bIkCFlXt/gMsTHx4e05X/9618k93vllVdCfouOjrbWqS7Puh4+fHiIl6a6dZN5xMbGUnp6epllqJNkGiAyoWcdIffbncj97+bkfqsDZU+Lofxv7vVfQ0MHUf3qazznU8DzoGceopx3u1H2S+Hk2eX31tVX65foPO8DlgT3j02bNi1kztxvvvmGbrzxRvHll1+GRDAHr6hUkYUXgMI+se7du+Phhx+u1LSMsu9v5cqV+PTTT63tn376KZ566qka7x+TluWIESNEcnIyrVy50hqm9corr+Duu+9GdHQ0iEL7UOWQlWbNmln96oD/Gq1fvx6rVq2ioUOHltqPXBbyus+bN4927doVcvwNN9yAqKiokEke5PCW8PBw3HTTTXjllVesuu3atQsLFiygCRMmiNImT6lJpGdl0aJFdPbsWasdRUVF4cUXX7QmD6kIRP5pNo8ePYpnnnnGakfr1q3Drl27qFu3biXORy7vTaNGjXDdddeFWJUzZ87EY489BiGE5fmRXo+rr74aTZs2LTfOYe/evSQX4ZAvmMceewxdunSp9BSkhmHg6aefxqlTp+BwOJCVlYWFCxfi3nvvDYnirnOEApABNaa1CBv5OuUvugVCdUJEJMC381MgqhmFXf5soD+4Hlte5xKByGby5sCz+F6Yp3fDednTcHadUD/7fYOx+wugviT5BT9kyBACik+UISOYpZUzbNgwCj6uaJJf6enp6RQTExNiUbz11ltU1XIe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iO8EJaEzlLj2UKJbARFNIMJihVAc1S+maQCeLFD+GaKcYzAzD8I8uw9mxn6YmYdAuSdAnmzA8PiFXnFARDSG0qQ7tKRkqO1HQW3cNahP+/wd/8wCzDAMU5+QQUtBw3NIL4BxYisZR1bDPLoBxuk9oPwzfuFVnYDqAhTF73o2vSDD5/9N0QAtHHDFQITFQQlv7B+HHBYP4YqBcEUDWjiE5gKEFhBBApk6oHsAPQ/kzQE82aCCDH/KPwsqyAR53YAvF2R4/W5yq89WhXBGQUS3gNq0J9TWl0FtPQhKo85BpnPATd7Qo7qrCQswwzBMvYRCRC0Y051GZvp2GMc2w0xP8bt589JBvjxLvIWiBURVFParmgZIunpD3NAliWDgt2IaEbRdKBCqEyIsFiKqBZSELlASe0Nt3g9KQlchXDGhh57L45qrAAswwzBMvScgxgS/pVtEMMnrhpl1mMyM/aCz+2FmHoCZnQrKTQcVZAJ6HmB4/ZZthft/AxPOCBVQHIAW5rdsw+IhoppBiW0DEdcBSqNOUOI7+KOzlSIzyZUyBInxwwLMMAzT0JAWLaFMNy7pBSBPJqEgs9B17Mnyu5V9eSDDA5i+whmmFBUiILZwREK4YqCExQGuOIjweIiweL9VW1qgFBlFJgw5f93LFYEFmGEYpsFTJLrZsjhrSQClZRs81IkFt9KwADMMw5yzFB2zG7S9QhQdP1yT44kZFmCGYRiGsQHuFWcYhmEYG2ABZhiGYRgbYAFmGIZhGBtgAWYYhmEYG2ABZhiGYRgbYAFmGIZhGBtgAWYYhmEYG2ABZhiGYRgbYAFmGIZhGBtgAWYYhmEYG2ABZhiGYRgbYAFmGIZhGBtgAWYYhmEYG2ABZhiGYRgbYAFmGIZhGBtgAWYYhmEYG2ABZhiGYRgbYAFmGIZhGBtgAWYYhmEYG2ABZhiGYRgbYAFmGIZhGBtgAWYYhmEYG2ABZhiGYRgbYAFmGIZhGBtgAWYYhmEYG2ABZhiGYRgbYAFmGIZhGBtgAWYYhmEYG2ABZhiGYRgbYAFmGIZhGBtgAWYYhmEYG2ABZhiGYRgbYAFmGIZhGBtgAWYYhmEYG2ABZhiGYRgbYAFmGIZhGBtgAWYYhmEYG2ABZhiGYRgbYAFmGIZhGBtgAWYYhmEYG2ABZhiGYRgbYAFmGIZhGBtgAWYYhmEYG2ABZhiGYRgbYAFmGIZhGBtgAWYYhmEYG2ABZhiGYRgbYAFmGIZhGBtgAWYYhmEYG2ABZhiGYRgbYAFmGIZhGBtgAWYYhmEYG2ABZhiGYRgbYAFmGIZhGBtgAWYYhmEYG2ABZhiGYRgbYAFmGIZhGBtgAWYYhmEYG2ABZhiGYRgbYAFmGIZhGBtgAWYYhmEYG2ABZhiGYRgbYAFmGIZhGBtgAWYYhmEYG2ABZhiGYRgbYAFmGIZhGBtgAWYYhmEYG2ABZhiGYRgbYAFmGIZhGBtgAWYYhmEYG2ABZhiGYRgbYAFmGIZhGBtgAWYYhmEYG2ABZhiGYRgbYAFmGIZhGBv4f0oT4p1SLWL9AAAAAElFTkSuQmCC" alt="Topo Varogava"></div>
+    <div class="brand-divider"></div>
+    <div>
+      <h1>Registrul titlurilor de proprietate</h1>
+      <div class="sub" id="countSub">se încarcă...</div>
+    </div>
+  </div>
+  <div class="head-actions">
+    <div id="driveHeaderBox" class="drive-header-box">
+      <span id="driveHeaderText" class="drive-header-text">neconectat</span>
+      <button class="primary small" id="btnHeaderConnect">Conectează-te cu Google</button>
+      <button class="ghost small" id="btnHeaderDisconnect" style="display:none;">Deconectează</button>
+    </div>
+    <button class="ghost" id="btnExport">Exportă CSV</button>
+    <button class="ghost" id="btnImport">Importă JSON</button>
+    <button class="ghost" id="btnBulkPdf">Introducere rapidă din PDF-uri</button>
+    <input type="file" id="bulkPdfFiles" accept="application/pdf" multiple style="display:none">
+    <button class="ghost" id="btnSettings">Setări</button>
+    <input type="file" id="importFile" accept="application/json" style="display:none">
+    <button class="primary" id="btnNew">+ Titlu nou</button>
+  </div>
+</header>
+
+<div class="layout">
+  <aside class="filters">
+    <h2>FOLDER PDF-URI</h2>
+    <div class="filter-group">
+      <button type="button" class="small" id="btnConnectFolder" style="width:100%;">Conectează folderul cu PDF-uri</button>
+      <button type="button" class="small ghost" id="btnChangeFolder" style="width:100%; margin-top:6px;">Schimbă folderul</button>
+      <div class="filter-note" id="folderStatus">Niciun folder conectat.</div>
+    </div>
+
+    <h2 style="margin-top:20px;">CĂUTARE DUPĂ NR. TITLU</h2>
+    <div class="filter-group">
+      <label>Număr titlu</label>
+      <div class="date-row">
+        <input type="text" id="searchNumarTitlu" placeholder="ex: 23145/63662">
+        <button type="button" class="small" id="btnSearchNumarTitlu">Caută</button>
+      </div>
+    </div>
+
+    <h2 style="margin-top:20px;">FILTRE — TITLU</h2>
+    <div class="filter-group">
+      <label>Cetățean / moștenitor</label>
+      <input type="text" id="searchOwner" placeholder="nume...">
+    </div>
+    <div class="filter-group">
+      <label>Data titlului</label>
+      <div class="date-row"><input type="text" id="searchDate" placeholder="ZZ-LL-AAAA"></div>
+    </div>
+
+    <h2 style="margin-top:20px;">FILTRE — PARCELĂ</h2>
+    <div class="filter-group">
+      <label>Sat (unde e situată parcela)</label>
+      <select id="filterSatAmplasament"><option value="">Toate</option></select>
+    </div>
+    <div class="filter-group">
+      <label>Comuna (unde e situată parcela)</label>
+      <select id="filterComunaAmplasament"><option value="">Toate</option></select>
+    </div>
+    <div class="filter-group">
+      <label>Categorie de folosință</label>
+      <select id="filterCategorie">
+        <option value="">Toate</option>
+        <option value="Arabil">1 · Arabil</option>
+        <option value="Vii">2 · Vii</option>
+        <option value="Livezi">3 · Livezi</option>
+        <option value="Pășuni">4 · Pășuni</option>
+        <option value="Fânețe">5 · Fânețe</option>
+        <option value="Păduri">6 · Păduri</option>
+        <option value="Curți-construcții / alte terenuri">7 · Curți-construcții / alte terenuri</option>
+        <option value="Altele">Altele</option>
+      </select>
+    </div>
+    <div class="filter-group">
+      <label>Caută parcelă după suprafață (mp)</label>
+      <input type="text" id="searchSuprafata" placeholder="ex: 2877">
+      <div class="filter-note">Introdu suprafața exactă a unei parcele ca să vezi categoria, nr. crt. și vecinătățile ei, indiferent din ce titlu face parte.</div>
+    </div>
+    <div class="filter-group">
+      <label>Caută în observații (titlu sau parcelă)</label>
+      <input type="text" id="searchObservatii" placeholder="ex: sub Făget">
+      <div id="obsSuggestions" class="filter-note"></div>
+    </div>
+    <button class="filter-reset ghost" id="btnResetFilters">Resetează filtrele</button>
+  </aside>
+
+  <main>
+    <div class="view-tabs">
+      <button type="button" class="active" id="tabTitluri">Titluri</button>
+      <button type="button" id="tabErori">Erori <span id="erroriCount" class="error-badge zero">0</span></button>
+    </div>
+    <div class="searchbar"><input type="text" id="freeSearch" placeholder="Căutare liberă (titlu, sat, tarlă, parcelă)..."></div>
+    <div class="results-meta">
+      <span id="resultsCount"></span>
+      <div style="display:flex; gap:10px; align-items:center;">
+        <button class="small ghost" id="btnExportExcel">Exportă Excel (rezultate)</button>
+      <select class="sort-select" id="sortSelect">
+        <option value="dataDesc">Cele mai recente</option>
+        <option value="cetatean">Cetățean (A-Z)</option>
+        <option value="numarTitlu">Număr titlu</option>
+      </select>
+      </div>
+    </div>
+    <div class="select-all-row">
+      <input type="checkbox" id="selectAllCheckbox" class="row-checkbox" style="margin:0;">
+      <label for="selectAllCheckbox">Selectează tot ce e afișat</label>
+    </div>
+    <div class="bulk-bar" id="bulkBar">
+      <span id="bulkCount">0 selectate</span>
+      <button type="button" id="btnBulkExport">Exportă Excel (selectate)</button>
+      <button type="button" id="btnBulkDelete">Șterge selectate</button>
+      <button type="button" id="btnBulkClear">Anulează selecția</button>
+    </div>
+    <div id="folderMatches"></div>
+    <div id="list"></div>
+  </main>
+</div>
+
+<div class="modal-overlay hidden" id="modalOverlay">
+  <div class="modal" id="modalBox">
+    <div class="batch-banner hidden" id="batchBanner">
+      <span id="batchStatus">Fișier 1 din 1</span>
+      <div class="right">
+        <button type="button" id="btnSkipBatch">Sări peste</button>
+        <button type="button" id="btnCancelBatch">Anulează importul</button>
+      </div>
+    </div>
+    <h2 id="modalTitle">Titlu nou</h2>
+    <div id="autofillStatus" class="filter-note hidden" style="margin-bottom:12px;"></div>
+    <div class="modal-body">
+      <div id="pdfPreviewPane" class="hidden"></div>
+      <div class="form-col">
+    <form id="titleForm">
+      <input type="hidden" id="f_id">
+      <button type="button" class="ghost small hidden" id="btnAttachPdf" style="margin-bottom:12px;">Atașează un PDF pentru autocompletare</button>
+      <input type="file" id="attachPdfFile" accept="application/pdf" style="display:none">
+      <div class="form-grid">
+        <div><label>Număr titlu</label><input type="text" id="f_numarTitlu"></div>
+        <div><label>Cod</label><input type="text" id="f_cod"></div>
+        <div><label>Județ</label><input type="text" id="f_judet"></div>
+
+        <div><label>Data emiterii (zi-lună-an)</label><input type="text" id="f_dataEmiterii" placeholder="ZZ-LL-AAAA"></div>
+        <div class="full"><label>Cetățeanul / persoana</label><input type="text" id="f_cetatean"></div>
+
+        <div><label>Numele defunctului (dacă e cazul)</label><input type="text" id="f_defunct"></div>
+        <div class="full" style="grid-column:2/-1;"><label>Moștenitorii defunctului</label><input type="text" id="f_mostenitori"></div>
+
+        <div><label>Sat (adresa declarantului)</label><input type="text" id="f_sat"></div>
+        <div class="full" style="grid-column:2/-1;"><label>Comuna / orașul (adresa declarantului)</label><input type="text" id="f_comuna"></div>
+
+        <div><label>Sat unde e situată parcela</label><input type="text" id="f_satAmplasament"></div>
+        <div class="full" style="grid-column:2/-1;"><label>Comuna unde e situată parcela</label><input type="text" id="f_comunaAmplasament"></div>
+
+        <div class="full"><label>Observații generale</label><textarea id="f_observatii"></textarea></div>
+      </div>
+
+      <div class="parcele-section">
+        <h3>Parcele <button type="button" class="small ghost" id="btnAddParcela">+ Adaugă parcelă</button></h3>
+        <div class="parcele-editor">
+          <div class="parcela-headers">
+            <span>Tip</span><span>Categorie</span><span>Tarla</span><span>Parcelă</span><span>Suprafață (mp)</span>
+            <span>Nord</span><span>Est</span><span>Sud</span><span>Vest</span><span>Observații</span><span></span>
+          </div>
+          <div id="parceleContainer"></div>
+        </div>
+        <div class="totals-line" id="totalsLine">Suprafață totală: 0 mp</div>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="danger hidden" id="btnDelete">Șterge titlul</button>
+        <div class="right">
+          <button type="button" class="ghost" id="btnCancel">Anulează</button>
+          <button type="submit" class="primary" id="btnSubmitLabel">Salvează</button>
+        </div>
+      </div>
+    </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="modal-overlay hidden" id="settingsOverlay">
+  <div class="modal" style="max-width:560px;">
+    <h2>Setări</h2>
+    <div class="form-grid">
+      <div class="full">
+        <div class="filter-note">Autocompletarea din PDF rulează pe server (Netlify); cheia Anthropic nu mai este în aplicație.</div>
+      </div>
+      <div class="full" style="border-top:1px solid var(--line); padding-top:14px; margin-top:4px;">
+        <label>Google Client ID (pentru sincronizare Google Drive)</label>
+        <input type="text" id="s_googleClientId" placeholder="...apps.googleusercontent.com">
+      </div>
+      <div class="full">
+        <label>ID-ul folderului Google Drive partajat</label>
+        <input type="text" id="s_driveFolderId" placeholder="ID-ul din URL-ul folderului">
+        <div class="filter-note">Titlurile se salvează ca fișiere în acest folder, vizibile tuturor celor cu care îl partajezi. Fiecare calculator trebuie să aibă completate aceleași două câmpuri de mai sus.</div>
+      </div>
+      <div class="full" style="display:flex; align-items:center; gap:12px;">
+        <button type="button" class="ghost" id="btnConnectDrive">Conectează Google Drive</button>
+        <span class="filter-note" id="driveConnectStatus" style="margin:0;">neconectat</span>
+      </div>
+      <div class="full" style="border-top:1px solid var(--line); padding-top:14px;">
+        <button type="button" class="ghost" id="btnMigrateLocal" style="width:100%;">Urcă baza de date locală pe Google Drive</button>
+        <div class="filter-note">Folosește asta o singură dată, dacă ai titluri introduse local (pe acest calculator) înainte să fi mers sincronizarea cu Drive. Trebuie să fii deja conectat la Google Drive mai sus.</div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <div></div>
+      <div class="right">
+        <button type="button" class="ghost" id="btnCloseSettings">Închide</button>
+        <button type="button" class="primary" id="btnSaveSettings">Salvează</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="lightbox-overlay hidden" id="pdfLightbox">
+  <div class="lightbox-toolbar">
+    <button type="button" id="btnZoomOut">−</button>
+    <button type="button" id="btnZoomIn">+</button>
+    <button type="button" id="btnZoomReset">Resetează</button>
+    <button type="button" id="btnCloseLightbox">Închide ✕</button>
+  </div>
+  <div id="lightboxCanvases"></div>
+</div>
+
+<script>
+let titles = [];
+let editingId = null;
+let batchFiles = [];
+let batchIndex = 0;
+let batchActive = false;
+let batchDefaults = {judet:'', comuna:'', sat:'', cod:''};
+let batchGeneration = 0;
+
+if(window.pdfjsLib){
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+}
+
+function pad2(n){ return String(n).padStart(2,'0'); }
+function isoToRo(iso){
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
+  if(!m) return '';
+  return `${m[3]}-${m[2]}-${m[1]}`;
+}
+function roToIso(ro){
+  const m = /^(\d{1,2})[-./](\d{1,2})[-./](\d{4})$/.exec((ro||'').trim());
+  if(!m) return '';
+  return `${m[3]}-${pad2(m[1])}-${pad2(m[2])}`;
+}
+
+function guessNumarTitlu(filename){
+  const base = filename.replace(/\.[^/.]+$/, '');
+  const stripped = base.replace(/^T[-_]?/i, '');
+  const parts = stripped.split(/[-_]/).filter(Boolean);
+  return parts.length ? parts.join('/') : base;
+}
+
+let pdfFolderHandle = null;
+
+function updateFolderStatus(text){
+  document.getElementById('folderStatus').textContent = text;
+}
+
+async function initPdfFolder(){
+  try{
+    const handle = await getSetting('pdfFolderHandle');
+    if(!handle){ updateFolderStatus('Niciun folder conectat.'); return; }
+    pdfFolderHandle = handle;
+    const perm = await handle.queryPermission({mode:'read'});
+    if(perm === 'granted'){
+      updateFolderStatus(`Folder conectat: „${handle.name}”.`);
+    }else{
+      updateFolderStatus(`Folder „${handle.name}” — apasă butonul pentru a reconfirma accesul.`);
+    }
+  }catch(e){
+    updateFolderStatus('Niciun folder conectat.');
+  }
+}
+
+async function reconnectPdfFolder(){
+  if(pdfFolderHandle){
+    const ok = await ensureFolderPermission();
+    if(ok){ updateFolderStatus(`Folder conectat: „${pdfFolderHandle.name}”.`); }
+    else{ updateFolderStatus(`Acces refuzat la folderul „${pdfFolderHandle.name}”. Apasă „Schimbă folderul” dacă vrei să alegi altul.`); }
+    return;
+  }
+  await pickNewPdfFolder();
+}
+
+async function pickNewPdfFolder(){
+  if(!window.showDirectoryPicker){
+    alert('Browserul tău nu suportă conectarea directă la un folder. Folosește Edge sau Chrome.');
+    return;
+  }
+  try{
+    const handle = await window.showDirectoryPicker();
+    const perm = await handle.requestPermission({mode:'read'});
+    if(perm !== 'granted'){ alert('Acces refuzat la folder.'); return; }
+    await setSetting('pdfFolderHandle', handle);
+    pdfFolderHandle = handle;
+    updateFolderStatus(`Folder conectat: „${handle.name}”.`);
+  }catch(e){
+    // user cancelled the picker — no action needed
+  }
+}
+
+async function ensureFolderPermission(){
+  if(!pdfFolderHandle) return false;
+  let perm = await pdfFolderHandle.queryPermission({mode:'read'});
+  if(perm !== 'granted') perm = await pdfFolderHandle.requestPermission({mode:'read'});
+  return perm === 'granted';
+}
+
+async function searchPdfInFolder(dirHandle, query, results, depth){
+  if(depth > 6) return;
+  for await (const [name, entry] of dirHandle.entries()){
+    if(entry.kind === 'file' && name.toLowerCase().endsWith('.pdf')){
+      const guessed = guessNumarTitlu(name).toLowerCase();
+      if(guessed.includes(query)) results.push({name, handle: entry});
+    }else if(entry.kind === 'directory'){
+      await searchPdfInFolder(entry, query, results, depth + 1);
+    }
+  }
+}
+
+async function performFolderSearch(){
+  const container = document.getElementById('folderMatches');
+  const query = document.getElementById('searchNumarTitlu').value.trim().toLowerCase();
+  if(!query || !pdfFolderHandle){ container.innerHTML = ''; return; }
+  const ok = await ensureFolderPermission();
+  if(!ok){ updateFolderStatus('Acces refuzat la folder — reconectează-l.'); return; }
+
+  container.innerHTML = '<div class="filter-note">Se caută în folder...</div>';
+  const results = [];
+  try{
+    await searchPdfInFolder(pdfFolderHandle, query, results, 0);
+  }catch(e){
+    container.innerHTML = '<div class="filter-note">Nu am putut citi folderul.</div>';
+    return;
+  }
+
+  const alreadyImported = new Set(titles.map(t => (t.numarTitlu||'').toLowerCase()));
+  const newOnes = results.filter(r => !alreadyImported.has(guessNumarTitlu(r.name).toLowerCase()));
+
+  if(newOnes.length === 0){ container.innerHTML = ''; return; }
+  container.innerHTML = newOnes.map((r, i) => `
+    <div class="folder-match-card" data-idx="${i}">
+      <div class="info"><b>${escapeHtml(guessNumarTitlu(r.name))}</b><br>găsit în folder: ${escapeHtml(r.name)} — neintrodus încă</div>
+      <button type="button" class="small primary" data-openfolder="${i}">Deschide și scanează</button>
+    </div>`).join('');
+  container.querySelectorAll('[data-openfolder]').forEach(btn=>{
+    btn.addEventListener('click', ()=> openFolderPdfForScan(newOnes[Number(btn.dataset.openfolder)]));
+  });
+}
+
+async function openFolderPdfForScan(match){
+  const file = await match.handle.getFile();
+  openModal(null);
+  document.getElementById('modalBox').classList.add('wide');
+  document.getElementById('f_numarTitlu').value = guessNumarTitlu(match.name);
+  renderPdfPreview(file);
+  await extractFromPdf(file);
+}
+
+let extractionGeneration = 0;
+
+function fileToBase64(file){
+  return new Promise((resolve, reject)=>{
+    const r = new FileReader();
+    r.onload = () => resolve(r.result.split(',')[1]);
+    r.onerror = () => reject(new Error('read failed'));
+    r.readAsDataURL(file);
+  });
+}
+
+function showAutofillStatus(msg, kind){
+  const el = document.getElementById('autofillStatus');
+  if(!msg){ el.classList.add('hidden'); return; }
+  el.textContent = msg;
+  el.style.color = kind === 'error' ? 'var(--rust)' : (kind === 'ok' ? 'var(--moss)' : 'var(--ink-soft)');
+  el.classList.remove('hidden');
+}
+
+function levenshtein(a, b){
+  a = a.toUpperCase(); b = b.toUpperCase();
+  const m = a.length, n = b.length;
+  if(m === 0) return n;
+  if(n === 0) return m;
+  let prev = Array.from({length:n+1}, (_,i)=>i);
+  for(let i=1; i<=m; i++){
+    const cur = [i];
+    for(let j=1; j<=n; j++){
+      const cost = a[i-1] === b[j-1] ? 0 : 1;
+      cur[j] = Math.min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost);
+    }
+    prev = cur;
+  }
+  return prev[n];
+}
+
+function tokenizeObservatii(text){
+  return String(text||'').toUpperCase().split(/[^A-ZĂÂÎȘȚ]+/).filter(w=>w.length>=3);
+}
+
+let selectedObsSynonyms = new Set();
+
+function renderObsSuggestions(){
+  const q = document.getElementById('searchObservatii').value.trim();
+  const container = document.getElementById('obsSuggestions');
+  if(!q){ container.innerHTML=''; selectedObsSynonyms.clear(); return; }
+  const similar = findSimilarWords(q, 3, 20);
+  if(similar.length===0){ container.innerHTML=''; return; }
+  container.innerHTML = '<div style="margin-bottom:4px;">Cuvinte asemănătoare găsite în registru — bifează pe cele pe care vrei să le incluzi și tu în căutare:</div>' +
+    similar.map(w => `
+      <label class="obs-check-row">
+        <input type="checkbox" class="obs-check" data-word="${escapeHtml(w)}" ${selectedObsSynonyms.has(w)?'checked':''}>
+        <span>${escapeHtml(w)}</span>
+      </label>`
+    ).join('');
+  container.querySelectorAll('.obs-check').forEach(cb=>{
+    cb.addEventListener('change', ()=>{
+      const w = cb.dataset.word;
+      if(cb.checked) selectedObsSynonyms.add(w); else selectedObsSynonyms.delete(w);
+      render();
+    });
+  });
+}
+
+function getObservationVocabulary(){
+  const counts = new Map();
+  titles.forEach(t=>{
+    tokenizeObservatii(t.observatii).forEach(w=>counts.set(w,(counts.get(w)||0)+1));
+    (t.parcele||[]).forEach(p=>tokenizeObservatii(p.observatii).forEach(w=>counts.set(w,(counts.get(w)||0)+1)));
+  });
+  return [...counts.entries()].map(([word,count])=>({word,count})).sort((a,b)=>b.count-a.count);
+}
+
+function findSimilarWords(query, maxDistance, limit){
+  const q = query.toUpperCase().trim();
+  if(q.length < 3) return [];
+  const vocab = getObservationVocabulary();
+  return vocab
+    .filter(({word}) => word !== q)
+    .map(({word,count}) => ({word, count, dist: levenshtein(q, word)}))
+    .filter(({dist, word}) => dist > 0 && dist <= maxDistance && Math.abs(word.length - q.length) <= maxDistance)
+    .sort((a,b)=> a.dist - b.dist || b.count - a.count)
+    .slice(0, limit)
+    .map(x=>x.word);
+}
+
+let lastExtractionResult = null;
+
+// Doar cuvintele cunoscute (nu secrete) se trimit la server; promptul stă în netlify/functions/extract.mjs
+function getVocabHint(){
+  return getObservationVocabulary().slice(0,150).map(v=>v.word);
+}
+
+async function extractFromPdf(file){
+  const myGen = ++extractionGeneration;
+  if(!driveConnected || !(await ensureDriveToken())){
+    showAutofillStatus('Conectează-te la Google Drive (butonul din antet) ca să folosești autocompletarea din PDF.', 'error');
+    lastExtractionResult = {ok:false, message:'Neconectat la Google.'};
+    return;
+  }
+  if(file.size > 4*1024*1024){
+    showAutofillStatus('PDF-ul are peste 4 MB — prea mare pentru autocompletare. Completează manual sau comprimă scanul.', 'error');
+    lastExtractionResult = {ok:false, message:'PDF prea mare (>4 MB)'};
+    return;
+  }
+  showAutofillStatus('Se completează automat din scan...', null);
+  try{
+    const b64 = await fileToBase64(file);
+    const response = await fetch('/api/extract', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({googleToken: driveAccessToken, pdfBase64: b64, vocab: getVocabHint()})
+    });
+    const json = await response.json().catch(()=>({}));
+    if(myGen !== extractionGeneration) return;
+    if(!response.ok || json.error || !json.data){
+      const msg = json.error || ('eroare server ' + response.status);
+      showAutofillStatus('Autocompletare eșuată: ' + msg + ' — introdu manual.', 'error');
+      lastExtractionResult = {ok:false, message: msg};
+      return;
+    }
+    applyExtractedData(json.data);
+    showAutofillStatus('Completat automat din scan — verifică datele înainte de salvare.', 'ok');
+    lastExtractionResult = {ok:true, message:''};
+  }catch(e){
+    if(myGen !== extractionGeneration) return;
+    showAutofillStatus('Nu am putut completa automat acest fișier — introdu manual.', 'error');
+    lastExtractionResult = {ok:false, message:'nu am putut contacta serverul'};
+  }
+}
+
+function applyExtractedData(data){
+  const setIfPresent = (elId, val) => { if(val !== undefined && val !== null && String(val).trim() !== '') document.getElementById(elId).value = val; };
+  setIfPresent('f_numarTitlu', data.numarTitlu);
+  setIfPresent('f_cod', data.cod);
+  setIfPresent('f_judet', data.judet);
+  setIfPresent('f_dataEmiterii', isoToRo(data.dataEmiterii));
+  setIfPresent('f_cetatean', data.cetatean);
+  setIfPresent('f_defunct', data.defunct);
+  setIfPresent('f_mostenitori', data.mostenitori);
+  setIfPresent('f_sat', data.sat);
+  setIfPresent('f_comuna', data.comuna);
+  setIfPresent('f_satAmplasament', data.satAmplasament);
+  setIfPresent('f_comunaAmplasament', data.comunaAmplasament);
+  setIfPresent('f_observatii', data.observatii);
+  if(Array.isArray(data.parcele) && data.parcele.length){
+    document.getElementById('parceleContainer').innerHTML = '';
+    data.parcele.forEach(p => addParcelaRow(p));
+    updateTotalsLine();
+    const genObsField = document.getElementById('f_observatii');
+    if(!genObsField.value.trim()){
+      const parcelObs = [...new Set(data.parcele.map(p=>(p.observatii||'').trim()).filter(Boolean))];
+      if(parcelObs.length) genObsField.value = parcelObs.join('; ');
+    }
+  }
+}
+
+let currentPreviewFile = null;
+
+async function renderPdfPreview(file){
+  currentPreviewFile = file;
+  const pane = document.getElementById('pdfPreviewPane');
+  pane.innerHTML = '<div class="pdf-loading">Se încarcă scanul...</div>';
+  pane.classList.remove('hidden');
+  try{
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({data: buf}).promise;
+    pane.innerHTML = '';
+    for(let i=1; i<=pdf.numPages; i++){
+      const page = await pdf.getPage(i);
+      const viewport = page.getViewport({scale: 1.4});
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width; canvas.height = viewport.height;
+      canvas.title = 'Click pentru a mări';
+      await page.render({canvasContext: canvas.getContext('2d'), viewport}).promise;
+      canvas.addEventListener('click', openLightbox);
+      pane.appendChild(canvas);
+    }
+  }catch(e){
+    pane.innerHTML = '<div class="pdf-loading">Nu am putut afișa acest PDF.</div>';
+  }
+}
+
+let lightboxScale = 2.2;
+async function openLightbox(){
+  if(!currentPreviewFile) return;
+  document.getElementById('pdfLightbox').classList.remove('hidden');
+  await renderLightboxPages();
+}
+function closeLightbox(){ document.getElementById('pdfLightbox').classList.add('hidden'); }
+async function renderLightboxPages(){
+  const container = document.getElementById('lightboxCanvases');
+  container.innerHTML = '<div class="pdf-loading">Se încarcă...</div>';
+  try{
+    const buf = await currentPreviewFile.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({data: buf}).promise;
+    container.innerHTML = '';
+    for(let i=1; i<=pdf.numPages; i++){
+      const page = await pdf.getPage(i);
+      const viewport = page.getViewport({scale: lightboxScale});
+      const canvas = document.createElement('canvas');
+      canvas.width = viewport.width; canvas.height = viewport.height;
+      await page.render({canvasContext: canvas.getContext('2d'), viewport}).promise;
+      container.appendChild(canvas);
+    }
+  }catch(e){
+    container.innerHTML = '<div class="pdf-loading">Nu am putut afișa acest PDF.</div>';
+  }
+}
+function zoomLightbox(delta){
+  lightboxScale = Math.min(6, Math.max(0.8, lightboxScale + delta));
+  renderLightboxPages();
+}
+
+function startBatch(files){
+  batchFiles = Array.from(files);
+  batchIndex = 0;
+  batchActive = true;
+  loadBatchFile();
+}
+
+function loadBatchFile(){
+  if(batchIndex >= batchFiles.length){ endBatch(true); return; }
+  const file = batchFiles[batchIndex];
+  const myBatchGen = ++batchGeneration;
+  openModal(null, {batch:true});
+  document.getElementById('f_numarTitlu').value = guessNumarTitlu(file.name);
+  document.getElementById('f_judet').value = batchDefaults.judet;
+  document.getElementById('f_comuna').value = batchDefaults.comuna;
+  document.getElementById('f_sat').value = batchDefaults.sat;
+  document.getElementById('f_cod').value = batchDefaults.cod;
+  document.getElementById('batchStatus').textContent = `Fișier ${batchIndex+1} din ${batchFiles.length}: ${file.name}`;
+  renderPdfPreview(file);
+  extractFromPdf(file).then(()=> autoSaveAndAdvance(myBatchGen));
+}
+
+function endBatch(finished){
+  batchActive = false;
+  batchGeneration++;
+  batchFiles = []; batchIndex = 0;
+  closeModal();
+  if(finished) alert('Import terminat.');
+}
+
+const CATEGORII = [
+  {value:'Arabil', nr:1}, {value:'Vii', nr:2}, {value:'Livezi', nr:3}, {value:'Pășuni', nr:4},
+  {value:'Fânețe', nr:5}, {value:'Păduri', nr:6}, {value:'Curți-construcții / alte terenuri', nr:7}, {value:'Altele', nr:'-'}
+];
+function nrCrtFor(cat){ const f = CATEGORII.find(c=>c.value===cat); return f ? f.nr : '-'; }
+
+const DB_NAME = 'CadastruTitluriDB';
+let dbInstance = null;
+function openDB(){
+  return new Promise((resolve, reject)=>{
+    const req = indexedDB.open(DB_NAME, 1);
+    req.onupgradeneeded = (e)=>{
+      const db = e.target.result;
+      if(!db.objectStoreNames.contains('titluri')) db.createObjectStore('titluri', {keyPath:'id'});
+      if(!db.objectStoreNames.contains('setari')) db.createObjectStore('setari', {keyPath:'key'});
+    };
+    req.onsuccess = ()=>resolve(req.result);
+    req.onerror = ()=>reject(req.error);
+  });
+}
+async function getDB(){ if(!dbInstance) dbInstance = await openDB(); return dbInstance; }
+
+async function getAllTitles(){
+  const db = await getDB();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction('titluri', 'readonly');
+    const req = tx.objectStore('titluri').getAll();
+    req.onsuccess = ()=>resolve(req.result || []);
+    req.onerror = ()=>reject(req.error);
+  });
+}
+async function putTitle(title){
+  const db = await getDB();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction('titluri', 'readwrite');
+    tx.objectStore('titluri').put(title);
+    tx.oncomplete = ()=>resolve();
+    tx.onerror = ()=>reject(tx.error);
+  });
+}
+async function deleteTitleRecord(id){
+  if(driveConnected){
+    const t = titles.find(x=>x.id===id);
+    if(t){
+      if(t.driveFileId) await driveDeleteFile(t.driveFileId);
+      if(t.pdfDriveFileId) await driveDeleteFile(t.pdfDriveFileId);
+    }
+    return;
+  }
+  const db = await getDB();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction('titluri', 'readwrite');
+    tx.objectStore('titluri').delete(id);
+    tx.oncomplete = ()=>resolve();
+    tx.onerror = ()=>reject(tx.error);
+  });
+}
+async function getSetting(key){
+  const db = await getDB();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction('setari', 'readonly');
+    const req = tx.objectStore('setari').get(key);
+    req.onsuccess = ()=>resolve(req.result ? req.result.value : undefined);
+    req.onerror = ()=>reject(req.error);
+  });
+}
+async function setSetting(key, value){
+  const db = await getDB();
+  return new Promise((resolve, reject)=>{
+    const tx = db.transaction('setari', 'readwrite');
+    tx.objectStore('setari').put({key, value});
+    tx.oncomplete = ()=>resolve();
+    tx.onerror = ()=>reject(tx.error);
+  });
+}
+
+// ---------- Google Drive sync ----------
+let googleTokenClient = null;
+let driveAccessToken = null;
+let driveTokenExpiry = 0;
+let driveConnected = false;
+
+let driveUserEmail = '';
+
+function updateDriveStatus(text){
+  const el = document.getElementById('driveConnectStatus');
+  if(el) el.textContent = text;
+  updateDriveHeaderUI();
+}
+
+function updateDriveHeaderUI(){
+  const box = document.getElementById('driveHeaderBox');
+  const textEl = document.getElementById('driveHeaderText');
+  if(!box || !textEl) return;
+  box.classList.toggle('connected', driveConnected);
+  textEl.textContent = driveConnected ? (`Google Drive: ${driveUserEmail || 'conectat'}`) : 'neconectat la Google Drive';
+  document.getElementById('btnHeaderDisconnect').style.display = driveConnected ? '' : 'none';
+}
+
+async function fetchGoogleUserInfo(){
+  try{
+    const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {headers:{'Authorization': `Bearer ${driveAccessToken}`}});
+    const info = await res.json();
+    driveUserEmail = info.email || '';
+  }catch(e){ driveUserEmail = ''; }
+}
+
+// App-level defaults — the same for every device/user of this deployment, no setup needed.
+const DEFAULT_GOOGLE_CLIENT_ID = '572890268158-ge5ihc0jbb7fbo3pomg02lv3vocac2rp.apps.googleusercontent.com';
+const DEFAULT_DRIVE_FOLDER_ID = '1rJ8QwpIvm34z340uhXXsbd6RRuokMDq5';
+
+async function initGoogleAuth(){
+  const clientId = (await getSetting('googleClientId')) || DEFAULT_GOOGLE_CLIENT_ID;
+  const folderId = (await getSetting('driveFolderId')) || DEFAULT_DRIVE_FOLDER_ID;
+  if(!clientId || !folderId || !window.google || !google.accounts){ updateDriveStatus('neconectat'); return; }
+  googleTokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: clientId,
+    scope: 'https://www.googleapis.com/auth/drive',
+    callback: ()=>{}
+  });
+  updateDriveStatus('neconectat — apasă „Conectează Google Drive”');
+}
+
+async function trySilentReconnect(){
+  if(!googleTokenClient){ await loadData(); return; }
+  try{
+    await requestGoogleToken('');
+    driveConnected = true;
+    await fetchGoogleUserInfo();
+    await purgeLegacySecrets();
+    updateDriveStatus('conectat ✓');
+  }catch(e){
+    // silent reconnect failed — normal if not previously authorized in this browser; just show the connect button
+    updateDriveStatus('neconectat — apasă „Conectează Google Drive”');
+  }
+  await loadData();
+}
+
+function requestGoogleToken(promptType){
+  return new Promise((resolve, reject)=>{
+    if(!googleTokenClient){ reject(new Error('Google Client ID neconfigurat.')); return; }
+    googleTokenClient.callback = (resp)=>{
+      if(resp.error){ reject(resp); return; }
+      driveAccessToken = resp.access_token;
+      driveTokenExpiry = Date.now() + (resp.expires_in*1000) - 60000;
+      resolve(resp);
+    };
+    googleTokenClient.requestAccessToken({prompt: promptType});
+  });
+}
+
+async function connectGoogleDrive(){
+  await initGoogleAuth();
+  if(!googleTokenClient){ alert('Completează mai întâi Client ID-ul Google și ID-ul folderului din Setări, apoi apasă Salvează.'); return; }
+  try{
+    await requestGoogleToken('consent');
+    driveConnected = true;
+    await fetchGoogleUserInfo();
+    await purgeLegacySecrets();
+    updateDriveStatus('conectat ✓');
+    await loadData();
+  }catch(e){
+    updateDriveStatus('conectare eșuată — vezi consola browserului');
+  }
+}
+
+// Curăță resturile vechi: cheia salvată local și app-config.json din Drive (nu mai există secrete în client)
+async function purgeLegacySecrets(){
+  try{ await setSetting('anthropicApiKey', ''); }catch(e){}
+  if(!driveConnected) return;
+  try{
+    const folderId = await requireDriveFolderId();
+    const q = encodeURIComponent(`'${folderId}' in parents and trashed=false and name = 'app-config.json'`);
+    const res = await driveFetch(`/drive/v3/files?q=${q}&fields=files(id)`);
+    if(!res.ok) return;
+    const data = await res.json();
+    for(const f of (data.files||[])) await driveFetch(`/drive/v3/files/${f.id}`, {method:'DELETE'});
+  }catch(e){ /* non-fatal */ }
+}
+
+function disconnectGoogleDrive(){
+  driveConnected = false;
+  driveAccessToken = null;
+  driveTokenExpiry = 0;
+  driveUserEmail = '';
+  updateDriveStatus('neconectat — apasă „Conectează Google Drive”');
+  loadData();
+}
+
+async function ensureDriveToken(){
+  if(driveAccessToken && Date.now() < driveTokenExpiry) return true;
+  try{ await requestGoogleToken(''); return true; }
+  catch(e){ return false; }
+}
+
+async function driveFetch(path, options={}){
+  const ok = await ensureDriveToken();
+  if(!ok) throw new Error('Nu sunt autentificat la Google Drive.');
+  const doFetch = () => fetch(`https://www.googleapis.com${path}`, {
+    ...options,
+    headers: {...(options.headers||{}), 'Authorization': `Bearer ${driveAccessToken}`}
+  });
+  let res = await doFetch();
+  if(res.status === 401){
+    await requestGoogleToken('');
+    res = await doFetch();
+  }
+  return res;
+}
+
+async function requireDriveFolderId(){
+  const raw = (await getSetting('driveFolderId')) || DEFAULT_DRIVE_FOLDER_ID;
+  const folderId = extractDriveFolderId(raw);
+  if(!folderId){
+    throw new Error('ID-ul folderului Google Drive nu e completat în Setări. Deschide Setări, lipește ID-ul folderului partajat și apasă Salvează, apoi reconectează-te.');
+  }
+  if(folderId !== raw) await setSetting('driveFolderId', folderId); // self-heal a previously mis-pasted value
+  return folderId;
+}
+
+async function driveListTitleFiles(){
+  const folderId = await requireDriveFolderId();
+  let files = [], pageToken = '';
+  do{
+    const q = encodeURIComponent(`'${folderId}' in parents and trashed=false and name contains 'titlu-'`);
+    const res = await driveFetch(`/drive/v3/files?q=${q}&fields=nextPageToken,files(id,name)&pageSize=1000${pageToken?'&pageToken='+pageToken:''}`);
+    const data = await res.json().catch(()=>({}));
+    if(!res.ok){
+      throw new Error(`Google Drive a refuzat listarea (${res.status}): ${data?.error?.message || 'răspuns necunoscut'} — verifică Folder ID-ul și accesul contului la folder.`);
+    }
+    files = files.concat(data.files||[]);
+    pageToken = data.nextPageToken || '';
+  }while(pageToken);
+  return files;
+}
+async function driveGetFileText(fileId){
+  const res = await driveFetch(`/drive/v3/files/${fileId}?alt=media`);
+  if(!res.ok) throw new Error(`Nu am putut citi fișierul ${fileId} (${res.status})`);
+  return res.text();
+}
+async function driveGetFileBlob(fileId){
+  const res = await driveFetch(`/drive/v3/files/${fileId}?alt=media`);
+  if(!res.ok) throw new Error(`Nu am putut citi fișierul ${fileId} (${res.status})`);
+  return res.blob();
+}
+function safeFilenamePart(s){ return String(s||'').replace(/[\\/:*?"<>|]/g,'_'); }
+async function driveUploadMultipart(filename, mimeType, bodyPart, existingFileId){
+  const folderId = await requireDriveFolderId();
+  const metadata = {name: filename, mimeType};
+  if(!existingFileId) metadata.parents = [folderId];
+  const boundary = '-------cadastru' + Date.now();
+  const head = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`;
+  const tail = `\r\n--${boundary}--`;
+  const body = new Blob([head, bodyPart, tail]);
+  const url = existingFileId ? `/upload/drive/v3/files/${existingFileId}?uploadType=multipart` : `/upload/drive/v3/files?uploadType=multipart`;
+  const res = await driveFetch(url, {method: existingFileId?'PATCH':'POST', headers:{'Content-Type':`multipart/related; boundary=${boundary}`}, body});
+  const json = await res.json().catch(()=>({}));
+  if(!res.ok || !json.id){
+    throw new Error(`Google Drive a refuzat salvarea (${res.status}): ${json?.error?.message || 'răspuns necunoscut'}`);
+  }
+  return json;
+}
+async function driveDeleteFile(fileId){
+  try{ await driveFetch(`/drive/v3/files/${fileId}`, {method:'DELETE'}); }catch(e){ /* ignore */ }
+}
+// ---------- end Google Drive sync ----------
+
+async function loadData(){
+  if(driveConnected){
+    try{
+      const files = await driveListTitleFiles();
+      const loaded = [];
+      for(const f of files){
+        try{
+          const obj = JSON.parse(await driveGetFileText(f.id));
+          obj.driveFileId = f.id;
+          loaded.push(obj);
+        }catch(e){ /* skip unreadable file */ }
+      }
+      titles = loaded;
+      if(files.length === 0){
+        updateDriveStatus(`conectat ✓ — 0 fișiere găsite în folder (verifică dacă acest cont (${driveUserEmail}) are acces de Editor pe folderul partajat)`);
+      }else{
+        updateDriveStatus('conectat ✓');
+      }
+    }catch(e){
+      if(/401|invalid authentication/i.test(e.message)){
+        driveConnected = false;
+        driveAccessToken = null;
+        driveTokenExpiry = 0;
+        updateDriveStatus('sesiunea Google a expirat — apasă „Conectează-te cu Google”');
+        alert('Sesiunea Google a expirat. Apasă din nou butonul „Conectează-te cu Google” din antet.');
+      }else{
+        alert('Nu am putut încărca titlurile din Google Drive: ' + e.message);
+      }
+      titles = [];
+    }
+    render();
+    return;
+  }
+  try{ titles = await getAllTitles(); }
+  catch(e){ titles = []; alert('Baza de date locală nu a putut fi deschisă. Folosește un browser modern (Edge, Chrome) și verifică setările de confidențialitate.'); }
+  render();
+}
+let suppressDriveAlerts = false;
+
+async function saveTitle(title){
+  if(driveConnected){
+    try{
+      if(title.pdfBlob && !title.pdfDriveFileId){
+        const uploaded = await driveUploadMultipart(`scan-${title.id}.pdf`, 'application/pdf', title.pdfBlob);
+        title.pdfDriveFileId = uploaded.id;
+      }
+      const toStore = {...title};
+      delete toStore.pdfBlob;
+      delete toStore.driveFileId;
+      const filename = `titlu-${safeFilenamePart(title.numarTitlu)}-${title.id}.json`;
+      const uploaded = await driveUploadMultipart(filename, 'application/json', JSON.stringify(toStore), title.driveFileId);
+      title.driveFileId = uploaded.id;
+    }catch(e){
+      if(!suppressDriveAlerts){
+        if(/401|invalid authentication/i.test(e.message)){
+          driveConnected = false;
+          driveAccessToken = null;
+          driveTokenExpiry = 0;
+          updateDriveStatus('sesiunea Google a expirat — apasă „Conectează-te cu Google”');
+          alert('Sesiunea Google a expirat chiar acum. Titlul NU a fost salvat pe Drive. Apasă „Conectează-te cu Google” din antet și încearcă din nou salvarea.');
+        }else{
+          alert('Nu am putut salva acest titlu pe Google Drive:\n\n' + e.message + '\n\nTitlul NU a fost salvat pe Drive — rămâne doar temporar, în sesiunea curentă.');
+        }
+      }
+      throw e;
+    }
+    return;
+  }
+  try{ await putTitle(title); }
+  catch(e){ alert('Nu am putut salva acest titlu în baza de date locală. Încearcă din nou.'); throw e; }
+}
+
+async function migrateLocalToDrive(){
+  if(!driveConnected){ alert('Conectează-te mai întâi la Google Drive (butonul de mai sus), apoi încearcă din nou.'); return; }
+  let localTitles;
+  try{ localTitles = await getAllTitles(); }
+  catch(e){ alert('Nu am putut citi baza de date locală.'); return; }
+  if(!localTitles.length){ alert('Nu există titluri locale de urcat pe acest calculator.'); return; }
+  if(!confirm(`Urc ${localTitles.length} titluri locale pe Google Drive acum. Poate dura câteva minute. Continui?`)) return;
+
+  suppressDriveAlerts = true;
+  let ok = 0, failed = 0, firstError = '';
+  for(const t of localTitles){
+    try{
+      const copy = {...t};
+      delete copy.driveFileId; // force-create as new files on Drive, keep local copies untouched
+      await saveTitle(copy);
+      ok++;
+    }catch(e){ failed++; if(!firstError) firstError = e.message; }
+  }
+  suppressDriveAlerts = false;
+  alert(`Gata. ${ok} titluri urcate cu succes${failed ? `, ${failed} eșuate.\n\nPrima eroare: ${firstError}` : '.'}`);
+  await loadData();
+}
+function uid(){ return 'id-' + Date.now() + '-' + Math.random().toString(36).slice(2,8); }
+function escapeHtml(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+
+function titleSuprafataTotala(t){
+  return (t.parcele||[]).reduce((sum,p)=> sum + (Number(p.suprafata)||0), 0);
+}
+
+function titlePassesBaseFilters(t){
+  const numTitlu = document.getElementById('searchNumarTitlu').value.trim().toLowerCase();
+  const q = document.getElementById('searchOwner').value.trim().toLowerCase();
+  const exactDate = roToIso(document.getElementById('searchDate').value);
+  const free = document.getElementById('freeSearch').value.trim().toLowerCase();
+  const satF = document.getElementById('filterSatAmplasament').value;
+  const comunaF = document.getElementById('filterComunaAmplasament').value;
+  const obsQ = document.getElementById('searchObservatii').value.trim().toLowerCase();
+
+  if(numTitlu && !(t.numarTitlu||'').toLowerCase().includes(numTitlu)) return false;
+  if(q){
+    const hay = [t.cetatean, t.defunct, t.mostenitori].map(v=>(v??'').toLowerCase()).join(' | ');
+    if(!hay.includes(q)) return false;
+  }
+  if(obsQ){
+    const hay = [t.observatii, ...(t.parcele||[]).map(p=>p.observatii)].map(v=>(v??'').toLowerCase()).join(' | ');
+    const terms = [obsQ, ...[...selectedObsSynonyms].map(w=>w.toLowerCase())];
+    if(!terms.some(term=>hay.includes(term))) return false;
+  }
+  if(satF && t.satAmplasament !== satF) return false;
+  if(comunaF && t.comunaAmplasament !== comunaF) return false;
+  if(exactDate && t.dataEmiterii !== exactDate) return false;
+  if(free){
+    const hay = [t.numarTitlu, t.sat, t.comuna, t.satAmplasament, t.comunaAmplasament, ...(t.parcele||[]).flatMap(p=>[p.tarla,p.parcela])]
+      .map(v=>(v??'').toString().toLowerCase()).join(' | ');
+    if(!hay.includes(free)) return false;
+  }
+  return true;
+}
+
+function getParcelMatches(){
+  const q = document.getElementById('searchSuprafata').value.trim();
+  if(!q) return null;
+  const cat = document.getElementById('filterCategorie').value;
+  const qNum = parseFloat(q.replace(',', '.'));
+  let results = [];
+  titles.forEach(t=>{
+    if(!titlePassesBaseFilters(t)) return;
+    (t.parcele||[]).forEach(p=>{
+      if(cat && p.categorie !== cat) return;
+      const val = Number(p.suprafata);
+      const matches = !isNaN(qNum) ? val === qNum : String(p.suprafata ?? '').includes(q);
+      if(matches) results.push({parcela:p, titlu:t});
+    });
+  });
+  return results;
+}
+
+function getFilteredTitles(){
+  const cat = document.getElementById('filterCategorie').value;
+  const sort = document.getElementById('sortSelect').value;
+  let out = titles.filter(t=>{
+    if(!titlePassesBaseFilters(t)) return false;
+    if(cat && !(t.parcele||[]).some(p=>p.categorie===cat)) return false;
+    return true;
+  });
+  out.sort((a,b)=>{
+    switch(sort){
+      case 'cetatean': return (a.cetatean||'').localeCompare(b.cetatean||'');
+      case 'numarTitlu': return (a.numarTitlu||'').localeCompare(b.numarTitlu||'', undefined, {numeric:true});
+      default: return (b.dataEmiterii||'').localeCompare(a.dataEmiterii||'');
+    }
+  });
+  return out;
+}
+
+function refreshLocationFilterOptions(){
+  const rebuild = (selId, values) => {
+    const sel = document.getElementById(selId);
+    const current = sel.value;
+    sel.innerHTML = '<option value="">Toate</option>' + values.map(v=>`<option value="${escapeHtml(v)}">${escapeHtml(v)}</option>`).join('');
+    if(values.includes(current)) sel.value = current;
+  };
+  rebuild('filterSatAmplasament', [...new Set(titles.map(t=>t.satAmplasament).filter(Boolean))].sort());
+  rebuild('filterComunaAmplasament', [...new Set(titles.map(t=>t.comunaAmplasament).filter(Boolean))].sort());
+}
+
+let viewMode = 'titluri';
+
+function render(){
+  refreshLocationFilterOptions();
+  document.getElementById('countSub').textContent = titles.length + (titles.length===1 ? ' titlu înregistrat' : ' titluri înregistrate');
+  const erroriList = titles.filter(t=>t.extractionStatus==='eroare');
+  const badge = document.getElementById('erroriCount');
+  badge.textContent = erroriList.length;
+  badge.classList.toggle('zero', erroriList.length===0);
+
+  const list = document.getElementById('list');
+  if(viewMode === 'erori'){
+    document.getElementById('selectAllCheckbox').parentElement.style.display = 'none';
+    document.getElementById('bulkBar').classList.remove('visible');
+    renderErrorList(erroriList, list);
+    return;
+  }
+  document.getElementById('selectAllCheckbox').parentElement.style.display = '';
+
+  const parcelMatches = getParcelMatches();
+
+  if(parcelMatches !== null){
+    document.getElementById('resultsCount').textContent = parcelMatches.length + ' parcele găsite';
+    if(parcelMatches.length === 0){
+      list.innerHTML = '<div class="empty">Nicio parcelă cu această suprafață.</div>';
+      return;
+    }
+    list.innerHTML = parcelMatches.map(({parcela:p, titlu:t})=>{
+      if(!p.id) p.id = uid();
+      const vecin = `<div class="vecin-grid"><b>N</b><span>${escapeHtml(p.vecinN)||'—'}</span><b>E</b><span>${escapeHtml(p.vecinE)||'—'}</span><b>S</b><span>${escapeHtml(p.vecinS)||'—'}</span><b>V</b><span>${escapeHtml(p.vecinV)||'—'}</span></div>`;
+      return `<div class="parcel-result" data-id="${t.id}">
+        <input type="checkbox" class="row-checkbox sel-checkbox" data-key="parcel:${t.id}:${p.id}">
+        <div class="top">
+          <span><span class="nrcrt-badge">Nr. crt. ${nrCrtFor(p.categorie)}</span><span class="cat-name">${escapeHtml(p.categorie)||'—'}</span><span class="tip-tag">${escapeHtml(p.tip)||''}</span></span>
+          <span class="sup">${Number(p.suprafata||0).toLocaleString('ro-RO')} mp</span>
+        </div>
+        <div class="meta-line">Tarla ${escapeHtml(p.tarla)||'—'} · Parcelă ${escapeHtml(p.parcela)||'—'} ${p.observatii ? '· '+escapeHtml(p.observatii) : ''}</div>
+        ${vecin}
+        <div class="from-titlu">din Titlul #${escapeHtml(t.numarTitlu)} — ${escapeHtml(t.cetatean)}${t.sat ? ', '+escapeHtml(t.sat) : ''}</div>
+      </div>`;
+    }).join('');
+    list.querySelectorAll('.parcel-result').forEach(el=>{
+      el.addEventListener('click', (e)=>{ if(e.target.closest('.sel-checkbox')) return; openModal(el.dataset.id); });
+    });
+    wireSelectionCheckboxes();
+    return;
+  }
+
+  const filtered = getFilteredTitles();
+  document.getElementById('resultsCount').textContent = filtered.length + ' titluri';
+  if(filtered.length === 0){
+    list.innerHTML = `<div class="empty">${titles.length===0 ? 'Niciun titlu introdus încă. Apasă „+ Titlu nou”.' : 'Niciun titlu nu corespunde filtrelor curente.'}</div>`;
+    return;
+  }
+  const catFilter = document.getElementById('filterCategorie').value;
+  const obsQ = document.getElementById('searchObservatii').value.trim().toLowerCase();
+  const obsTerms = obsQ ? [obsQ, ...[...selectedObsSynonyms].map(w=>w.toLowerCase())] : [];
+  list.innerHTML = filtered.map(t=>{
+    const total = titleSuprafataTotala(t);
+    let parcele = (t.parcele||[]).filter(p=> !catFilter || p.categorie===catFilter);
+    if(obsTerms.length){
+      const matching = parcele.filter(p => obsTerms.some(term => (p.observatii||'').toLowerCase().includes(term)));
+      if(matching.length) parcele = matching;
+      // if no individual parcel matches, the hit came from the title's general "Observații" field — show all parcels as-is
+    }
+    const parceleRows = parcele.length ? `
+      <div class="parcele-wrap"><table class="parcele-table"><thead><tr>
+        <th>Categorie</th><th>Tip</th><th>Tarla</th><th>Parcelă</th><th>Suprafață</th><th>Vecinătăți</th><th>Obs.</th>
+      </tr></thead><tbody>
+      ${parcele.map(p=>`<tr>
+        <td><span class="nrcrt-badge">${nrCrtFor(p.categorie)}</span>${escapeHtml(p.categorie)||'—'}</td>
+        <td>${escapeHtml(p.tip)||'—'}</td>
+        <td>${escapeHtml(p.tarla)||'—'}</td>
+        <td>${escapeHtml(p.parcela)||'—'}</td>
+        <td>${p.suprafata ? Number(p.suprafata).toLocaleString('ro-RO')+' mp' : '—'}</td>
+        <td><div class="vecin-grid"><b>N</b><span>${escapeHtml(p.vecinN)||'—'}</span><b>E</b><span>${escapeHtml(p.vecinE)||'—'}</span><b>S</b><span>${escapeHtml(p.vecinS)||'—'}</span><b>V</b><span>${escapeHtml(p.vecinV)||'—'}</span></div></td>
+        <td>${escapeHtml(p.observatii)||''}</td>
+      </tr>`).join('')}
+      </tbody></table></div>` : '<div class="no-parcele">Nicio parcelă introdusă.</div>';
+
+    return `<div class="card" data-id="${t.id}">
+      <div class="head-row">
+        <input type="checkbox" class="row-checkbox sel-checkbox" data-key="title:${t.id}" style="margin-top:4px;">
+        <div>
+          <span class="titlu-nr">Titlu #${escapeHtml(t.numarTitlu)}${t.cod ? ' · cod '+escapeHtml(t.cod) : ''}</span>
+          <div class="cetatean-line">${escapeHtml(t.cetatean)}</div>
+          ${t.defunct || t.mostenitori ? `<div class="mostenitori-line">${t.defunct ? 'moșt. lui '+escapeHtml(t.defunct)+' — ' : ''}${escapeHtml(t.mostenitori)||''}</div>` : ''}
+          <div class="meta-line">${[t.sat, t.comuna, t.judet].filter(Boolean).map(escapeHtml).join(', ')}</div>
+        </div>
+        <div class="totals">
+          <div class="sup">${total.toLocaleString('ro-RO')} mp</div>
+          <div class="data">${isoToRo(t.dataEmiterii) || '—'}</div>
+          <button class="del-btn" data-del="${t.id}" title="Șterge">✕</button>
+        </div>
+      </div>
+      ${parceleRows}
+    </div>`;
+  }).join('');
+
+  list.querySelectorAll('.head-row').forEach(el=>{
+    el.addEventListener('click', (e)=>{
+      if(e.target.closest('.del-btn') || e.target.closest('.sel-checkbox')) return;
+      openModal(el.closest('.card').dataset.id);
+    });
+  });
+  list.querySelectorAll('[data-del]').forEach(btn=>{
+    btn.addEventListener('click', (e)=>{ e.stopPropagation(); quickDelete(btn.dataset.del); });
+  });
+  wireSelectionCheckboxes();
+}
+
+let selectedKeys = new Set();
+
+function wireSelectionCheckboxes(){
+  const boxes = [...document.querySelectorAll('.sel-checkbox')];
+  boxes.forEach(cb=>{
+    cb.checked = selectedKeys.has(cb.dataset.key);
+    cb.addEventListener('click', e=>e.stopPropagation());
+    cb.addEventListener('change', ()=>{
+      if(cb.checked) selectedKeys.add(cb.dataset.key); else selectedKeys.delete(cb.dataset.key);
+      updateBulkBar(boxes);
+    });
+  });
+  updateBulkBar(boxes);
+}
+
+function updateBulkBar(boxes){
+  boxes = boxes || [...document.querySelectorAll('.sel-checkbox')];
+  const count = selectedKeys.size;
+  document.getElementById('bulkCount').textContent = count + ' selectate';
+  document.getElementById('bulkBar').classList.toggle('visible', count>0);
+  const selectAllCb = document.getElementById('selectAllCheckbox');
+  selectAllCb.checked = boxes.length>0 && boxes.every(cb=>selectedKeys.has(cb.dataset.key));
+}
+
+function addParcelaRow(p={}){
+  const row = document.createElement('div');
+  row.className = 'parcela-row';
+  row.dataset.pid = p.id || uid();
+  const catOptions = CATEGORII.map(c=>`<option value="${c.value}" ${p.categorie===c.value?'selected':''}>${c.nr} · ${c.value}</option>`).join('');
+  row.innerHTML = `
+    <select class="p_tip">
+      <option ${p.tip==='Extravilan'||!p.tip?'selected':''}>Extravilan</option>
+      <option ${p.tip==='Intravilan'?'selected':''}>Intravilan</option>
+    </select>
+    <select class="p_categorie"><option value="">—</option>${catOptions}</select>
+    <input type="text" class="p_tarla" value="${escapeHtml(p.tarla)}">
+    <input type="text" class="p_parcela" value="${escapeHtml(p.parcela)}">
+    <input type="number" class="p_suprafata" value="${p.suprafata ?? ''}">
+    <input type="text" class="p_vecinN" value="${escapeHtml(p.vecinN)}">
+    <input type="text" class="p_vecinE" value="${escapeHtml(p.vecinE)}">
+    <input type="text" class="p_vecinS" value="${escapeHtml(p.vecinS)}">
+    <input type="text" class="p_vecinV" value="${escapeHtml(p.vecinV)}">
+    <input type="text" class="p_observatii" value="${escapeHtml(p.observatii)}">
+    <button type="button" class="row-del">✕</button>
+  `;
+  row.querySelector('.row-del').addEventListener('click', ()=>{ row.remove(); updateTotalsLine(); });
+  row.querySelector('.p_suprafata').addEventListener('input', updateTotalsLine);
+  document.getElementById('parceleContainer').appendChild(row);
+}
+
+function updateTotalsLine(){
+  const vals = [...document.querySelectorAll('.p_suprafata')].map(i=>Number(i.value)||0);
+  const total = vals.reduce((a,b)=>a+b,0);
+  document.getElementById('totalsLine').textContent = 'Suprafață totală: ' + total.toLocaleString('ro-RO') + ' mp';
+}
+
+function openModal(id, opts={}){
+  editingId = id || null;
+  const t = id ? titles.find(x=>x.id===id) : null;
+  document.getElementById('modalTitle').textContent = t ? 'Editează titlul' : 'Titlu nou';
+  document.getElementById('btnDelete').classList.toggle('hidden', !t);
+
+  document.getElementById('batchBanner').classList.toggle('hidden', !opts.batch);
+  document.getElementById('modalBox').classList.toggle('wide', !!opts.batch || !!(t && (t.pdfBlob || t.pdfDriveFileId)));
+  document.getElementById('btnSubmitLabel').textContent = opts.batch ? 'Salvează acum (opțional — se salvează automat)' : 'Salvează';
+  document.getElementById('btnAttachPdf').classList.toggle('hidden', !!opts.batch);
+  showAutofillStatus('', null);
+  lastExtractionResult = null;
+  if(t && t.pdfBlob){
+    renderPdfPreview(t.pdfBlob);
+  }else if(t && t.pdfDriveFileId){
+    document.getElementById('pdfPreviewPane').classList.remove('hidden');
+    document.getElementById('pdfPreviewPane').innerHTML = '<div class="pdf-loading">Se aduce scanul din Google Drive...</div>';
+    driveGetFileBlob(t.pdfDriveFileId).then(blob=>renderPdfPreview(blob)).catch(()=>{
+      document.getElementById('pdfPreviewPane').innerHTML = '<div class="pdf-loading">Nu am putut aduce scanul din Drive.</div>';
+    });
+  }else if(!opts.batch){
+    document.getElementById('pdfPreviewPane').classList.add('hidden');
+    document.getElementById('pdfPreviewPane').innerHTML='';
+    currentPreviewFile = null;
+  }
+
+  const set = (elId,val) => document.getElementById(elId).value = val ?? '';
+  set('f_id', t?.id || '');
+  set('f_numarTitlu', t?.numarTitlu); set('f_cod', t?.cod); set('f_judet', t?.judet);
+  set('f_dataEmiterii', isoToRo(t?.dataEmiterii)); set('f_cetatean', t?.cetatean);
+  set('f_defunct', t?.defunct); set('f_mostenitori', t?.mostenitori);
+  set('f_sat', t?.sat); set('f_comuna', t?.comuna); set('f_observatii', t?.observatii);
+  set('f_satAmplasament', t?.satAmplasament); set('f_comunaAmplasament', t?.comunaAmplasament);
+
+  document.getElementById('parceleContainer').innerHTML = '';
+  (t?.parcele || []).forEach(p=>addParcelaRow(p));
+  updateTotalsLine();
+
+  document.getElementById('modalOverlay').classList.remove('hidden');
+  document.getElementById('f_numarTitlu').focus();
+}
+function closeModal(){
+  document.getElementById('modalOverlay').classList.add('hidden');
+  editingId = null;
+  extractionGeneration++;
+  if(batchActive){ batchActive = false; batchFiles = []; batchIndex = 0; }
+}
+
+async function quickDelete(id){
+  if(!confirm('Ștergi acest titlu din registru? Acțiunea nu poate fi anulată.')) return;
+  await deleteTitleRecord(id);
+  titles = titles.filter(t=>t.id!==id);
+  render();
+}
+
+document.getElementById('btnAddParcela').addEventListener('click', ()=>addParcelaRow());
+
+function renderErrorList(erroriList, list){
+  document.getElementById('resultsCount').textContent = erroriList.length + ' titluri cu eroare de citire';
+  if(erroriList.length === 0){
+    list.innerHTML = '<div class="empty">Niciun titlu cu eroare de citire — totul e curat.</div>';
+    return;
+  }
+  list.innerHTML = erroriList.map(t=>`
+    <div class="error-card" data-id="${t.id}">
+      <div class="top">
+        <span class="titlu-nr">Titlu #${escapeHtml(t.numarTitlu)||'(fără număr)'} — ${escapeHtml(t.cetatean)||'(fără cetățean)'}</span>
+      </div>
+      <div class="msg">${escapeHtml(t.extractionError || 'Citirea automată a eșuat.')}</div>
+      <div class="actions">
+        <button type="button" class="small primary" data-rescan="${t.id}">Rescanează</button>
+        <button type="button" class="small ghost" data-edit="${t.id}">Deschide manual</button>
+      </div>
+    </div>`).join('');
+  list.querySelectorAll('[data-rescan]').forEach(btn=>btn.addEventListener('click', ()=>rescanTitle(btn.dataset.rescan)));
+  list.querySelectorAll('[data-edit]').forEach(btn=>btn.addEventListener('click', ()=>openModal(btn.dataset.edit)));
+}
+
+async function rescanTitle(id){
+  const t = titles.find(x=>x.id===id);
+  openModal(id);
+  if(t && t.pdfBlob){ await extractFromPdf(t.pdfBlob); }
+  else{ showAutofillStatus('Nu mai există scanul original pentru acest titlu — completează manual.', 'error'); }
+}
+
+function gatherFormData(){
+  const val = id => document.getElementById(id).value.trim();
+  const parcele = [...document.querySelectorAll('#parceleContainer .parcela-row')].map(row=>({
+    id: row.dataset.pid || uid(),
+    tip: row.querySelector('.p_tip').value,
+    categorie: row.querySelector('.p_categorie').value,
+    tarla: row.querySelector('.p_tarla').value.trim(),
+    parcela: row.querySelector('.p_parcela').value.trim(),
+    suprafata: row.querySelector('.p_suprafata').value,
+    vecinN: row.querySelector('.p_vecinN').value.trim(),
+    vecinE: row.querySelector('.p_vecinE').value.trim(),
+    vecinS: row.querySelector('.p_vecinS').value.trim(),
+    vecinV: row.querySelector('.p_vecinV').value.trim(),
+    observatii: row.querySelector('.p_observatii').value.trim(),
+  }));
+  const existing = editingId ? titles.find(t=>t.id===editingId) : null;
+  return {
+    id: editingId || uid(),
+    createdAt: existing ? existing.createdAt : Date.now(),
+    numarTitlu: val('f_numarTitlu'), cod: val('f_cod'), judet: val('f_judet'),
+    dataEmiterii: roToIso(val('f_dataEmiterii')), cetatean: val('f_cetatean'),
+    defunct: val('f_defunct'), mostenitori: val('f_mostenitori'),
+    sat: val('f_sat'), comuna: val('f_comuna'),
+    satAmplasament: val('f_satAmplasament'), comunaAmplasament: val('f_comunaAmplasament'),
+    observatii: val('f_observatii'),
+    parcele,
+    pdfBlob: currentPreviewFile || existing?.pdfBlob || undefined,
+    pdfDriveFileId: existing?.pdfDriveFileId || undefined,
+    driveFileId: existing?.driveFileId || undefined,
+    extractionStatus: lastExtractionResult ? (lastExtractionResult.ok ? 'ok' : 'eroare') : (existing?.extractionStatus),
+    extractionError: lastExtractionResult ? (lastExtractionResult.ok ? '' : lastExtractionResult.message) : (existing?.extractionError)
+  };
+}
+
+async function autoSaveAndAdvance(myBatchGen){
+  if(!batchActive || myBatchGen !== batchGeneration) return;
+  const data = gatherFormData();
+  if(!data.numarTitlu) data.numarTitlu = guessNumarTitlu(batchFiles[batchIndex]?.name || '') || '(fără număr)';
+  if(editingId){ titles = titles.map(t=>t.id===editingId?data:t); } else { titles.push(data); }
+  await saveTitle(data); render();
+  batchDefaults = {judet: data.judet, comuna: data.comuna, sat: data.sat, cod: data.cod};
+  batchIndex++;
+  loadBatchFile();
+}
+
+document.getElementById('titleForm').addEventListener('submit', async (e)=>{
+  e.preventDefault();
+  if(batchActive) batchGeneration++;
+  const data = gatherFormData();
+  if(!data.numarTitlu) data.numarTitlu = '(fără număr)';
+
+  if(!batchActive && !editingId && data.numarTitlu !== '(fără număr)'){
+    const dup = titles.find(t => (t.numarTitlu||'').trim().toLowerCase() === data.numarTitlu.trim().toLowerCase());
+    if(dup){
+      const proceed = confirm(`Titlul #${data.numarTitlu} există deja în listă (cetățean: ${dup.cetatean || 'necompletat'}).\n\nVrei să îl introduci oricum, ca înregistrare separată (duplicat)?\n\nApasă OK pentru a introduce oricum, sau Anulează pentru a renunța.`);
+      if(!proceed) return;
+    }
+  }
+
+  if(editingId){ titles = titles.map(t=>t.id===editingId?data:t); } else { titles.push(data); }
+  await saveTitle(data); render();
+
+  if(batchActive){
+    batchDefaults = {judet: data.judet, comuna: data.comuna, sat: data.sat, cod: data.cod};
+    batchIndex++;
+    loadBatchFile();
+  }else{
+    closeModal();
+    performFolderSearch();
+  }
+});
+
+document.getElementById('btnDelete').addEventListener('click', async ()=>{
+  if(!editingId) return;
+  if(!confirm('Ștergi acest titlu din registru? Acțiunea nu poate fi anulată.')) return;
+  await deleteTitleRecord(editingId);
+  titles = titles.filter(t=>t.id!==editingId);
+  render(); closeModal();
+});
+
+document.getElementById('btnNew').addEventListener('click', ()=>openModal(null));
+document.getElementById('btnAttachPdf').addEventListener('click', ()=>document.getElementById('attachPdfFile').click());
+document.getElementById('attachPdfFile').addEventListener('change', (e)=>{
+  const file = e.target.files[0];
+  if(file){ document.getElementById('modalBox').classList.add('wide'); renderPdfPreview(file); extractFromPdf(file); }
+  e.target.value = '';
+});
+document.getElementById('btnBulkPdf').addEventListener('click', ()=>document.getElementById('bulkPdfFiles').click());
+document.getElementById('btnSettings').addEventListener('click', async ()=>{
+  document.getElementById('s_googleClientId').value = (await getSetting('googleClientId')) || DEFAULT_GOOGLE_CLIENT_ID;
+  document.getElementById('s_driveFolderId').value = (await getSetting('driveFolderId')) || DEFAULT_DRIVE_FOLDER_ID;
+  updateDriveStatus(driveConnected ? 'conectat ✓' : 'neconectat');
+  document.getElementById('settingsOverlay').classList.remove('hidden');
+});
+document.getElementById('btnCloseSettings').addEventListener('click', ()=>{
+  document.getElementById('settingsOverlay').classList.add('hidden');
+});
+function extractDriveFolderId(raw){
+  const s = (raw||'').trim();
+  const m = /\/folders\/([a-zA-Z0-9_-]+)/.exec(s);
+  if(m) return m[1];
+  return s.split('?')[0].replace(/\/+$/,'');
+}
+
+document.getElementById('btnSaveSettings').addEventListener('click', async ()=>{
+  await setSetting('googleClientId', document.getElementById('s_googleClientId').value.trim());
+  const cleanFolderId = extractDriveFolderId(document.getElementById('s_driveFolderId').value);
+  await setSetting('driveFolderId', cleanFolderId);
+  document.getElementById('s_driveFolderId').value = cleanFolderId;
+  await initGoogleAuth();
+  document.getElementById('settingsOverlay').classList.add('hidden');
+});
+document.getElementById('btnConnectDrive').addEventListener('click', connectGoogleDrive);
+document.getElementById('btnMigrateLocal').addEventListener('click', migrateLocalToDrive);
+document.getElementById('btnHeaderConnect').addEventListener('click', connectGoogleDrive);
+document.getElementById('btnHeaderDisconnect').addEventListener('click', disconnectGoogleDrive);
+document.getElementById('settingsOverlay').addEventListener('click', (e)=>{
+  if(e.target.id==='settingsOverlay') document.getElementById('settingsOverlay').classList.add('hidden');
+});
+document.getElementById('bulkPdfFiles').addEventListener('change', (e)=>{
+  if(e.target.files.length) startBatch(e.target.files);
+  e.target.value = '';
+});
+document.getElementById('btnSkipBatch').addEventListener('click', ()=>{ batchIndex++; loadBatchFile(); });
+document.getElementById('btnCancelBatch').addEventListener('click', ()=>{ endBatch(false); });
+document.getElementById('btnCancel').addEventListener('click', closeModal);
+document.getElementById('modalOverlay').addEventListener('click', (e)=>{ if(e.target.id==='modalOverlay') closeModal(); });
+
+['searchNumarTitlu','searchOwner','searchDate','filterSatAmplasament','filterComunaAmplasament','filterCategorie','searchSuprafata','searchObservatii','freeSearch','sortSelect'].forEach(id=>{
+  document.getElementById(id).addEventListener('input', render);
+  document.getElementById(id).addEventListener('change', render);
+});
+document.getElementById('searchObservatii').addEventListener('input', renderObsSuggestions);
+document.getElementById('btnSearchNumarTitlu').addEventListener('click', ()=>{ render(); performFolderSearch(); });
+document.getElementById('btnConnectFolder').addEventListener('click', reconnectPdfFolder);
+document.getElementById('btnChangeFolder').addEventListener('click', pickNewPdfFolder);
+document.getElementById('searchNumarTitlu').addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ render(); performFolderSearch(); } });
+
+document.getElementById('selectAllCheckbox').addEventListener('change', (e)=>{
+  const checked = e.target.checked;
+  document.querySelectorAll('.sel-checkbox').forEach(cb=>{
+    cb.checked = checked;
+    if(checked) selectedKeys.add(cb.dataset.key); else selectedKeys.delete(cb.dataset.key);
+  });
+  updateBulkBar();
+});
+
+document.getElementById('btnBulkClear').addEventListener('click', ()=>{ selectedKeys.clear(); render(); });
+
+document.getElementById('btnBulkExport').addEventListener('click', ()=>{
+  if(selectedKeys.size === 0) return;
+  const rows = [];
+  selectedKeys.forEach(key=>{
+    const [kind, tId, pId] = key.split(':');
+    const t = titles.find(x=>x.id===tId);
+    if(!t) return;
+    if(kind==='title'){
+      if(t.parcele && t.parcele.length) t.parcele.forEach(p=>rows.push(buildExportRow(t,p)));
+      else rows.push(buildExportRow(t, null));
+    }else if(kind==='parcel'){
+      const p = (t.parcele||[]).find(pp=>pp.id===pId);
+      if(p) rows.push(buildExportRow(t,p));
+    }
+  });
+  if(rows.length === 0){ alert('Nimic de exportat.'); return; }
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Titluri');
+  XLSX.writeFile(wb, 'titluri-selectate.xlsx');
+});
+
+document.getElementById('btnBulkDelete').addEventListener('click', async ()=>{
+  if(selectedKeys.size === 0) return;
+  if(!confirm(`Ștergi ${selectedKeys.size} elemente selectate? Acțiunea nu poate fi anulată.`)) return;
+  const titleIdsToDelete = new Set();
+  const parcelDeletes = [];
+  selectedKeys.forEach(key=>{
+    const [kind, tId, pId] = key.split(':');
+    if(kind==='title') titleIdsToDelete.add(tId);
+    else if(kind==='parcel') parcelDeletes.push({titleId:tId, parcelId:pId});
+  });
+  for(const id of titleIdsToDelete){ await deleteTitleRecord(id); }
+  titles = titles.filter(t=>!titleIdsToDelete.has(t.id));
+  const affectedTitleIds = new Set(parcelDeletes.map(pd=>pd.titleId).filter(id=>!titleIdsToDelete.has(id)));
+  for(const tid of affectedTitleIds){
+    const t = titles.find(x=>x.id===tid);
+    if(!t) continue;
+    const idsToRemove = new Set(parcelDeletes.filter(pd=>pd.titleId===tid).map(pd=>pd.parcelId));
+    t.parcele = (t.parcele||[]).filter(p=>!idsToRemove.has(p.id));
+    await saveTitle(t);
+  }
+  selectedKeys.clear();
+  render();
+});
+
+document.getElementById('tabTitluri').addEventListener('click', ()=>{
+  viewMode = 'titluri';
+  document.getElementById('tabTitluri').classList.add('active');
+  document.getElementById('tabErori').classList.remove('active');
+  render();
+});
+document.getElementById('tabErori').addEventListener('click', ()=>{
+  viewMode = 'erori';
+  document.getElementById('tabErori').classList.add('active');
+  document.getElementById('tabTitluri').classList.remove('active');
+  render();
+});
+
+document.getElementById('btnZoomIn').addEventListener('click', ()=>zoomLightbox(0.5));
+document.getElementById('btnZoomOut').addEventListener('click', ()=>zoomLightbox(-0.5));
+document.getElementById('btnZoomReset').addEventListener('click', ()=>{ lightboxScale = 2.2; renderLightboxPages(); });
+document.getElementById('btnCloseLightbox').addEventListener('click', closeLightbox);
+document.getElementById('pdfLightbox').addEventListener('click', (e)=>{ if(e.target.id==='pdfLightbox') closeLightbox(); });
+
+document.getElementById('btnResetFilters').addEventListener('click', ()=>{
+  ['searchNumarTitlu','searchOwner','searchDate','filterSatAmplasament','filterComunaAmplasament','filterCategorie','searchSuprafata','searchObservatii','freeSearch'].forEach(id=>document.getElementById(id).value='');
+  document.getElementById('folderMatches').innerHTML = '';
+  selectedObsSynonyms.clear();
+  document.getElementById('obsSuggestions').innerHTML = '';
+  render();
+});
+
+function buildAdresa(t){
+  return [t.sat, t.comuna, t.judet].filter(Boolean).join(', ');
+}
+
+function buildExportRow(t, p){
+  return {
+    'Număr titlu': t.numarTitlu || '', 'Data titlu': isoToRo(t.dataEmiterii) || '', 'Adresă': buildAdresa(t),
+    'Cetățean': t.cetatean || '', 'Numele defunctului': t.defunct || '', 'Moștenitori': t.mostenitori || '',
+    'Sat (parcelă)': t.satAmplasament || '', 'Comuna (parcelă)': t.comunaAmplasament || '',
+    'Tip': p?.tip || '', 'Categorie': p?.categorie || '', 'Nr. crt.': p?.categorie ? nrCrtFor(p.categorie) : '',
+    'Tarla': p?.tarla || '', 'Parcelă': p?.parcela || '', 'Suprafață (mp)': p?.suprafata || '',
+    'Vecin Nord': p?.vecinN || '', 'Vecin Est': p?.vecinE || '', 'Vecin Sud': p?.vecinS || '', 'Vecin Vest': p?.vecinV || '',
+    'Observații parcelă': p?.observatii || '', 'Observații generale': t.observatii || ''
+  };
+}
+
+function getExportRows(){
+  const rows = [];
+  const pushRow = (t, p) => rows.push(buildExportRow(t, p));
+
+  const parcelMatches = getParcelMatches();
+  if(parcelMatches !== null){
+    parcelMatches.forEach(({parcela, titlu}) => pushRow(titlu, parcela));
+  }else{
+    getFilteredTitles().forEach(t=>{
+      const catFilter = document.getElementById('filterCategorie').value;
+      const parcele = (t.parcele||[]).filter(p=> !catFilter || p.categorie===catFilter);
+      if(parcele.length) parcele.forEach(p=>pushRow(t,p));
+      else pushRow(t, null);
+    });
+  }
+  return rows;
+}
+
+document.getElementById('btnExportExcel').addEventListener('click', ()=>{
+  const rows = getExportRows();
+  if(rows.length === 0){ alert('Nu există rezultate de exportat pentru filtrele curente.'); return; }
+  const ws = XLSX.utils.json_to_sheet(rows);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Titluri');
+  XLSX.writeFile(wb, 'titluri-cautare.xlsx');
+});
+
+document.getElementById('btnExport').addEventListener('click', ()=>{
+  if(titles.length===0){ alert('Nu există titluri de exportat.'); return; }
+  const rows = [];
+  rows.push(['numarTitlu','cod','judet','dataEmiterii','cetatean','defunct','mostenitori','sat','comuna','tip','categorie','nrCrt','tarla','parcela','suprafata','vecinN','vecinE','vecinS','vecinV','observatii_parcela','observatii_generale'].join(','));
+  titles.forEach(t=>{
+    const base = [t.numarTitlu,t.cod,t.judet,isoToRo(t.dataEmiterii),t.cetatean,t.defunct,t.mostenitori,t.sat,t.comuna];
+    (t.parcele && t.parcele.length ? t.parcele : [{}]).forEach(p=>{
+      const line = [...base, p.tip||'', p.categorie||'', nrCrtFor(p.categorie), p.tarla||'', p.parcela||'', p.suprafata||'', p.vecinN||'', p.vecinE||'', p.vecinS||'', p.vecinV||'', p.observatii||'', t.observatii||''];
+      rows.push(line.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(','));
+    });
+  });
+  const csv = '\uFEFF' + rows.join('\r\n');
+  const blob = new Blob([csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = 'titluri-proprietate.csv'; a.click();
+  URL.revokeObjectURL(url);
+});
+
+document.getElementById('btnImport').addEventListener('click', ()=>document.getElementById('importFile').click());
+document.getElementById('importFile').addEventListener('change', async (e)=>{
+  const file = e.target.files[0]; if(!file) return;
+  try{
+    const text = await file.text();
+    const imported = JSON.parse(text);
+    if(!Array.isArray(imported)) throw new Error('format invalid');
+    let added = 0;
+    for(const item of imported){
+      if(item && item.numarTitlu){
+        const record = {...item, id: uid(), createdAt: Date.now(), parcele: item.parcele || []};
+        await putTitle(record);
+        titles.push(record);
+        added++;
+      }
+    }
+    render();
+    alert(added + ' titluri importate cu succes.');
+  }catch(err){ alert('Fișierul nu a putut fi importat. Verifică formatul JSON.'); }
+  e.target.value = '';
+});
+
+initGoogleAuth().then(trySilentReconnect);
+initPdfFolder();
+</script>
+</body>
+</html>
