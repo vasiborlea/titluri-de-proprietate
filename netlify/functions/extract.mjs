@@ -35,24 +35,25 @@ const json = (status, body) => new Response(JSON.stringify(body), {
   status, headers: { 'Content-Type': 'application/json' }
 });
 
-// Verifică tokenul Google trimis de aplicație: să fie emis pentru aplicația noastră
-// (GOOGLE_CLIENT_ID) și, opțional, să aparțină unui e-mail din ALLOWED_EMAILS.
-async function verifyCaller(token) {
-  if (!token) return { ok: false, msg: 'Lipsește autentificarea Google.' };
-  const r = await fetch('https://oauth2.googleapis.com/tokeninfo?access_token=' + encodeURIComponent(token));
-  if (!r.ok) return { ok: false, msg: 'Sesiune Google expirată sau invalidă.' };
-  const info = await r.json();
-  const expectedClient = process.env.GOOGLE_CLIENT_ID;
-  if (expectedClient && info.aud !== expectedClient) return { ok: false, msg: 'Token emis pentru altă aplicație.' };
-  if (ALLOWED_EMAILS.length) {
-    let email = (info.email || '').toLowerCase();
-    if (!email) {
-      const a = await fetch('https://www.googleapis.com/drive/v3/about?fields=user(emailAddress)', {
-        headers: { Authorization: 'Bearer ' + token }
-      });
-      if (a.ok) email = ((await a.json()).user?.emailAddress || '').toLowerCase();
-    }
-    if (!ALLOWED_EMAILS.includes(email)) return { ok: false, msg: 'Contul Google nu are voie să folosească autocompletarea.' };
+// Verifică tokenul de autentificare Firebase (ID token) trimis de aplicație: să fie valid pentru
+// proiectul nostru Firebase (verificat de Google prin accounts:lookup cu cheia web din FIREBASE_CONFIG),
+// cu e-mail verificat, și — dacă ALLOWED_EMAILS e setat — să aparțină unui e-mail din listă.
+let FIREBASE_API_KEY = '';
+try { FIREBASE_API_KEY = JSON.parse(process.env.FIREBASE_CONFIG || '{}').apiKey || ''; } catch { /* neconfigurat */ }
+
+async function verifyCaller(idToken) {
+  if (!idToken) return { ok: false, msg: 'Lipsește autentificarea.' };
+  if (!FIREBASE_API_KEY) return { ok: false, msg: 'FIREBASE_CONFIG nu este setat în Netlify.' };
+  const r = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=' + encodeURIComponent(FIREBASE_API_KEY), {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ idToken })
+  });
+  if (!r.ok) return { ok: false, msg: 'Sesiune expirată sau invalidă.' };
+  const user = ((await r.json()).users || [])[0];
+  if (!user || !user.email || !user.emailVerified) return { ok: false, msg: 'Cont fără e-mail verificat.' };
+  if (ALLOWED_EMAILS.length && !ALLOWED_EMAILS.includes(user.email.toLowerCase())) {
+    return { ok: false, msg: 'Contul nu are voie să folosească autocompletarea.' };
   }
   return { ok: true };
 }
@@ -79,7 +80,7 @@ export default async (req) => {
   let body;
   try { body = await req.json(); } catch { return json(400, { error: 'Cerere invalidă.' }); }
 
-  const auth = await verifyCaller(body.googleToken);
+  const auth = await verifyCaller(body.idToken);
   if (!auth.ok) return json(401, { error: auth.msg });
 
   const b64 = body.pdfBase64;

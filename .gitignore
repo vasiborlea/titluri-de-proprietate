@@ -4,3 +4,5 @@ netlify/functions/probe.txt
 .env.*
 .netlify/
 node_modules/
+firebase-debug.log
+.netlify/

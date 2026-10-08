@@ -1,0 +1,26 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    function allowed() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email in [
+          'valer@varogava.ro',
+          'borleavasi@gmail.com'
+        ];
+    }
+
+    // Scanurile PDF ale titlurilor: doar conturile din listă, doar PDF, max 25 MB.
+    match /scans/{file} {
+      allow read: if allowed();
+      allow write: if allowed()
+        && request.resource.contentType == 'application/pdf'
+        && request.resource.size < 25 * 1024 * 1024;
+      allow delete: if allowed();
+    }
+
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

@@ -6,7 +6,10 @@
 <title>Registrul titlurilor de proprietate</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-<script src="https://accounts.google.com/gsi/client" async defer></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-storage-compat.js"></script>
 <style>
   :root{
     --paper:#F3F4F1; --card:#FFFFFF; --ink:#23302B; --ink-soft:#5C6B62;
@@ -618,8 +621,9 @@ function getVocabHint(){
 
 async function extractFromPdf(file){
   const myGen = ++extractionGeneration;
-  if(!driveConnected || !(await ensureDriveToken())){
-    showAutofillStatus('Conectează-te la Google Drive (butonul din antet) ca să folosești autocompletarea din PDF.', 'error');
+  const idToken = signedIn ? await getFirebaseIdToken() : null;
+  if(!idToken){
+    showAutofillStatus('Conectează-te cu Google (butonul din antet) ca să folosești autocompletarea din PDF.', 'error');
     lastExtractionResult = {ok:false, message:'Neconectat la Google.'};
     return;
   }
@@ -634,7 +638,7 @@ async function extractFromPdf(file){
     const response = await fetch('/api/extract', {
       method: 'POST',
       headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({googleToken: driveAccessToken, pdfBase64: b64, vocab: getVocabHint()})
+      body: JSON.stringify({idToken, pdfBase64: b64, vocab: getVocabHint()})
     });
     const json = await response.json().catch(()=>({}));
     if(myGen !== extractionGeneration) return;
@@ -808,12 +812,10 @@ async function putTitle(title){
   });
 }
 async function deleteTitleRecord(id){
-  if(driveConnected){
+  if(signedIn){
     const t = titles.find(x=>x.id===id);
-    if(t){
-      if(t.driveFileId) await driveDeleteFile(t.driveFileId);
-      if(t.pdfDriveFileId) await driveDeleteFile(t.pdfDriveFileId);
-    }
+    await fbDb.collection('titles').doc(id).delete();
+    if(t && t.pdfPath){ try{ await fbStorage.ref(t.pdfPath).delete(); }catch(e){ /* scanul poate lipsi deja */ } }
     return;
   }
   const db = await getDB();
@@ -843,41 +845,32 @@ async function setSetting(key, value){
   });
 }
 
-// ---------- Google Drive sync ----------
-let googleTokenClient = null;
-let driveAccessToken = null;
-let driveTokenExpiry = 0;
-let driveConnected = false;
+// ---------- Firebase (Auth + Firestore + Storage) ----------
+// Configurarea Firebase vine de la server (/api/config), din variabila Netlify FIREBASE_CONFIG.
+// Datele titlurilor stau în Firestore (colecția "titles"), scanurile PDF în Storage ("scans/..").
+// Accesul îl limitează regulile din firestore.rules / storage.rules (listă de e-mailuri).
+let fbAuth = null, fbDb = null, fbStorage = null;
+let signedIn = false;
+let userEmail = '';
+let authStatusNote = '';
+let appConfig = null;
+let authListenerAttached = false;
 
-let driveUserEmail = '';
-
-let driveStatusNote = '';
-function updateDriveStatus(text){
-  // în antet apar doar avertismentele/erorile; starea normală (conectat/neconectat) o arată antetul singur
-  driveStatusNote = /neconfigurat|eșuată|expirat|0 fișiere/.test(text) ? text : '';
-  updateDriveHeaderUI();
+function updateAuthStatus(text){
+  // în antet apar doar avertismentele/erorile; starea normală o arată antetul singur
+  authStatusNote = /neconfigurat|eșuată|nu are acces|expirat/.test(text) ? text : '';
+  updateAuthHeaderUI();
 }
 
-function updateDriveHeaderUI(){
+function updateAuthHeaderUI(){
   const box = document.getElementById('driveHeaderBox');
   const textEl = document.getElementById('driveHeaderText');
   if(!box || !textEl) return;
-  box.classList.toggle('connected', driveConnected);
-  textEl.textContent = driveStatusNote || (driveConnected ? (`Google Drive: ${driveUserEmail || 'conectat'}`) : 'neconectat la Google Drive');
-  document.getElementById('btnHeaderDisconnect').style.display = driveConnected ? '' : 'none';
+  box.classList.toggle('connected', signedIn);
+  textEl.textContent = authStatusNote || (signedIn ? (`Conectat: ${userEmail || 'cont Google'}`) : 'neconectat');
+  document.getElementById('btnHeaderDisconnect').style.display = signedIn ? '' : 'none';
 }
 
-async function fetchGoogleUserInfo(){
-  try{
-    const res = await fetch('https://www.googleapis.com/oauth2/v3/userinfo', {headers:{'Authorization': `Bearer ${driveAccessToken}`}});
-    const info = await res.json();
-    driveUserEmail = info.email || '';
-  }catch(e){ driveUserEmail = ''; }
-}
-
-// Configurarea (Google Client ID + ID folder Drive) vine de la server, din variabilele de mediu Netlify
-// GOOGLE_CLIENT_ID și DRIVE_FOLDER_ID, prin /api/config. Nu mai e scrisă în cod și nu există ecran de Setări.
-let appConfig = null;
 async function loadAppConfig(){
   if(appConfig) return appConfig;
   try{
@@ -887,190 +880,83 @@ async function loadAppConfig(){
   return appConfig;
 }
 
-async function initGoogleAuth(){
+async function initFirebase(){
+  if(fbAuth) return true;
   const cfg = await loadAppConfig();
-  const clientId = cfg && cfg.googleClientId;
-  const folderId = cfg && cfg.driveFolderId;
-  if(!clientId || !folderId){ updateDriveStatus('neconfigurat — setează GOOGLE_CLIENT_ID și DRIVE_FOLDER_ID în Netlify'); return; }
-  if(!window.google || !google.accounts){ updateDriveStatus('neconectat'); return; }
-  googleTokenClient = google.accounts.oauth2.initTokenClient({
-    client_id: clientId,
-    scope: 'https://www.googleapis.com/auth/drive',
-    callback: ()=>{}
-  });
-  updateDriveStatus('neconectat — apasă „Conectează Google Drive”');
+  const fc = cfg && cfg.firebaseConfig;
+  if(!fc || !fc.apiKey){ updateAuthStatus('neconfigurat — setează FIREBASE_CONFIG în Netlify'); return false; }
+  if(!window.firebase){ updateAuthStatus('neconectat'); return false; }
+  if(!firebase.apps.length) firebase.initializeApp(fc);
+  fbAuth = firebase.auth();
+  fbDb = firebase.firestore();
+  fbStorage = firebase.storage();
+  if(!authListenerAttached){
+    authListenerAttached = true;
+    fbAuth.onAuthStateChanged(async (user)=>{
+      signedIn = !!user;
+      userEmail = user ? (user.email || '') : '';
+      updateAuthStatus(signedIn ? 'conectat' : 'neconectat');
+      await loadData();
+    });
+  }
+  return true;
 }
 
-async function trySilentReconnect(){
-  if(!googleTokenClient){ await loadData(); return; }
+async function signInWithGoogle(){
+  if(!(await initFirebase())){
+    alert('Aplicația nu e configurată: setează variabila FIREBASE_CONFIG în Netlify (Environment variables) și refă deploy-ul.');
+    return;
+  }
   try{
-    await requestGoogleToken('');
-    driveConnected = true;
-    await fetchGoogleUserInfo();
-    await purgeLegacySecrets();
-    updateDriveStatus('conectat ✓');
+    await fbAuth.signInWithPopup(new firebase.auth.GoogleAuthProvider());
   }catch(e){
-    // silent reconnect failed — normal if not previously authorized in this browser; just show the connect button
-    updateDriveStatus('neconectat — apasă „Conectează Google Drive”');
-  }
-  await loadData();
-}
-
-function requestGoogleToken(promptType){
-  return new Promise((resolve, reject)=>{
-    if(!googleTokenClient){ reject(new Error('Google Client ID neconfigurat.')); return; }
-    googleTokenClient.callback = (resp)=>{
-      if(resp.error){ reject(resp); return; }
-      driveAccessToken = resp.access_token;
-      driveTokenExpiry = Date.now() + (resp.expires_in*1000) - 60000;
-      resolve(resp);
-    };
-    googleTokenClient.requestAccessToken({prompt: promptType});
-  });
-}
-
-async function connectGoogleDrive(){
-  await initGoogleAuth();
-  if(!googleTokenClient){ alert('Aplicația nu e configurată: setează variabilele GOOGLE_CLIENT_ID și DRIVE_FOLDER_ID în Netlify (Environment variables) și refă deploy-ul.'); return; }
-  try{
-    await requestGoogleToken('consent');
-    driveConnected = true;
-    await fetchGoogleUserInfo();
-    await purgeLegacySecrets();
-    updateDriveStatus('conectat ✓');
-    await loadData();
-  }catch(e){
-    updateDriveStatus('conectare eșuată — vezi consola browserului');
+    if(e.code === 'auth/popup-closed-by-user' || e.code === 'auth/cancelled-popup-request') return;
+    updateAuthStatus('conectare eșuată — vezi consola browserului');
+    alert('Conectarea cu Google a eșuat: ' + e.message);
   }
 }
 
-// Curăță resturile vechi: cheia salvată local și app-config.json din Drive (nu mai există secrete în client)
-async function purgeLegacySecrets(){
-  try{ await setSetting('anthropicApiKey', ''); }catch(e){}
-  if(!driveConnected) return;
-  try{
-    const folderId = await requireDriveFolderId();
-    const q = encodeURIComponent(`'${folderId}' in parents and trashed=false and name = 'app-config.json'`);
-    const res = await driveFetch(`/drive/v3/files?q=${q}&fields=files(id)`);
-    if(!res.ok) return;
-    const data = await res.json();
-    for(const f of (data.files||[])) await driveFetch(`/drive/v3/files/${f.id}`, {method:'DELETE'});
-  }catch(e){ /* non-fatal */ }
+function signOutOfGoogle(){
+  if(fbAuth) fbAuth.signOut();
 }
 
-function disconnectGoogleDrive(){
-  driveConnected = false;
-  driveAccessToken = null;
-  driveTokenExpiry = 0;
-  driveUserEmail = '';
-  updateDriveStatus('neconectat — apasă „Conectează Google Drive”');
-  loadData();
+async function getFirebaseIdToken(){
+  if(!fbAuth || !fbAuth.currentUser) return null;
+  try{ return await fbAuth.currentUser.getIdToken(); }
+  catch(e){ return null; }
 }
 
-async function ensureDriveToken(){
-  if(driveAccessToken && Date.now() < driveTokenExpiry) return true;
-  try{ await requestGoogleToken(''); return true; }
-  catch(e){ return false; }
+function safeFilenamePart(s){ return String(s||'').replace(/[\\/:*?"<>|]/g,'_'); }
+
+// Firestore nu acceptă "undefined"; scoatem și câmpurile care nu se salvează în documente.
+function titleToDoc(t){
+  const d = {...t};
+  delete d.pdfBlob;
+  delete d.driveFileId;
+  delete d.pdfDriveFileId;
+  return JSON.parse(JSON.stringify(d));
 }
 
-async function driveFetch(path, options={}){
-  const ok = await ensureDriveToken();
-  if(!ok) throw new Error('Nu sunt autentificat la Google Drive.');
-  const doFetch = () => fetch(`https://www.googleapis.com${path}`, {
-    ...options,
-    headers: {...(options.headers||{}), 'Authorization': `Bearer ${driveAccessToken}`}
-  });
-  let res = await doFetch();
-  if(res.status === 401){
-    await requestGoogleToken('');
-    res = await doFetch();
-  }
-  return res;
-}
-
-async function requireDriveFolderId(){
-  const cfg = await loadAppConfig();
-  const folderId = extractDriveFolderId(cfg && cfg.driveFolderId);
-  if(!folderId){
-    throw new Error('DRIVE_FOLDER_ID nu este setat în Netlify (Environment variables).');
-  }
-  return folderId;
-}
-
-async function driveListTitleFiles(){
-  const folderId = await requireDriveFolderId();
-  let files = [], pageToken = '';
-  do{
-    const q = encodeURIComponent(`'${folderId}' in parents and trashed=false and name contains 'titlu-'`);
-    const res = await driveFetch(`/drive/v3/files?q=${q}&fields=nextPageToken,files(id,name)&pageSize=1000${pageToken?'&pageToken='+pageToken:''}`);
-    const data = await res.json().catch(()=>({}));
-    if(!res.ok){
-      throw new Error(`Google Drive a refuzat listarea (${res.status}): ${data?.error?.message || 'răspuns necunoscut'} — verifică Folder ID-ul și accesul contului la folder.`);
-    }
-    files = files.concat(data.files||[]);
-    pageToken = data.nextPageToken || '';
-  }while(pageToken);
-  return files;
-}
-async function driveGetFileText(fileId){
-  const res = await driveFetch(`/drive/v3/files/${fileId}?alt=media`);
-  if(!res.ok) throw new Error(`Nu am putut citi fișierul ${fileId} (${res.status})`);
-  return res.text();
-}
-async function driveGetFileBlob(fileId){
-  const res = await driveFetch(`/drive/v3/files/${fileId}?alt=media`);
-  if(!res.ok) throw new Error(`Nu am putut citi fișierul ${fileId} (${res.status})`);
+async function getScanBlob(path){
+  const url = await fbStorage.ref(path).getDownloadURL();
+  const res = await fetch(url);
+  if(!res.ok) throw new Error(`Nu am putut citi scanul (${res.status})`);
   return res.blob();
 }
-function safeFilenamePart(s){ return String(s||'').replace(/[\\/:*?"<>|]/g,'_'); }
-async function driveUploadMultipart(filename, mimeType, bodyPart, existingFileId){
-  const folderId = await requireDriveFolderId();
-  const metadata = {name: filename, mimeType};
-  if(!existingFileId) metadata.parents = [folderId];
-  const boundary = '-------cadastru' + Date.now();
-  const head = `--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: ${mimeType}\r\n\r\n`;
-  const tail = `\r\n--${boundary}--`;
-  const body = new Blob([head, bodyPart, tail]);
-  const url = existingFileId ? `/upload/drive/v3/files/${existingFileId}?uploadType=multipart` : `/upload/drive/v3/files?uploadType=multipart`;
-  const res = await driveFetch(url, {method: existingFileId?'PATCH':'POST', headers:{'Content-Type':`multipart/related; boundary=${boundary}`}, body});
-  const json = await res.json().catch(()=>({}));
-  if(!res.ok || !json.id){
-    throw new Error(`Google Drive a refuzat salvarea (${res.status}): ${json?.error?.message || 'răspuns necunoscut'}`);
-  }
-  return json;
-}
-async function driveDeleteFile(fileId){
-  try{ await driveFetch(`/drive/v3/files/${fileId}`, {method:'DELETE'}); }catch(e){ /* ignore */ }
-}
-// ---------- end Google Drive sync ----------
+// ---------- end Firebase ----------
 
 async function loadData(){
-  if(driveConnected){
+  if(signedIn){
     try{
-      const files = await driveListTitleFiles();
-      const loaded = [];
-      for(const f of files){
-        try{
-          const obj = JSON.parse(await driveGetFileText(f.id));
-          obj.driveFileId = f.id;
-          loaded.push(obj);
-        }catch(e){ /* skip unreadable file */ }
-      }
-      titles = loaded;
-      if(files.length === 0){
-        updateDriveStatus(`conectat ✓ — 0 fișiere găsite în folder (verifică dacă acest cont (${driveUserEmail}) are acces de Editor pe folderul partajat)`);
-      }else{
-        updateDriveStatus('conectat ✓');
-      }
+      const snap = await fbDb.collection('titles').get();
+      titles = snap.docs.map(d=>({...d.data(), id: d.id}));
+      updateAuthStatus('conectat');
     }catch(e){
-      if(/401|invalid authentication/i.test(e.message)){
-        driveConnected = false;
-        driveAccessToken = null;
-        driveTokenExpiry = 0;
-        updateDriveStatus('sesiunea Google a expirat — apasă „Conectează-te cu Google”');
-        alert('Sesiunea Google a expirat. Apasă din nou butonul „Conectează-te cu Google” din antet.');
+      if(e.code === 'permission-denied'){
+        updateAuthStatus('nu are acces — contul nu e în lista de utilizatori permiși');
+        alert(`Contul ${userEmail} nu are acces la date. Conectează-te cu un cont permis.`);
       }else{
-        alert('Nu am putut încărca titlurile din Google Drive: ' + e.message);
+        alert('Nu am putut încărca titlurile din Firebase: ' + e.message);
       }
       titles = [];
     }
@@ -1081,32 +967,22 @@ async function loadData(){
   catch(e){ titles = []; alert('Baza de date locală nu a putut fi deschisă. Folosește un browser modern (Edge, Chrome) și verifică setările de confidențialitate.'); }
   render();
 }
-let suppressDriveAlerts = false;
 
 async function saveTitle(title){
-  if(driveConnected){
+  if(signedIn){
     try{
-      if(title.pdfBlob && !title.pdfDriveFileId){
-        const uploaded = await driveUploadMultipart(`scan-${title.id}.pdf`, 'application/pdf', title.pdfBlob);
-        title.pdfDriveFileId = uploaded.id;
+      if(!title.id) title.id = uid();
+      if(title.pdfBlob && !title.pdfPath){
+        const path = `scans/${title.id}.pdf`;
+        await fbStorage.ref(path).put(title.pdfBlob, {contentType: 'application/pdf'});
+        title.pdfPath = path;
       }
-      const toStore = {...title};
-      delete toStore.pdfBlob;
-      delete toStore.driveFileId;
-      const filename = `titlu-${safeFilenamePart(title.numarTitlu)}-${title.id}.json`;
-      const uploaded = await driveUploadMultipart(filename, 'application/json', JSON.stringify(toStore), title.driveFileId);
-      title.driveFileId = uploaded.id;
+      await fbDb.collection('titles').doc(title.id).set(titleToDoc(title));
     }catch(e){
-      if(!suppressDriveAlerts){
-        if(/401|invalid authentication/i.test(e.message)){
-          driveConnected = false;
-          driveAccessToken = null;
-          driveTokenExpiry = 0;
-          updateDriveStatus('sesiunea Google a expirat — apasă „Conectează-te cu Google”');
-          alert('Sesiunea Google a expirat chiar acum. Titlul NU a fost salvat pe Drive. Apasă „Conectează-te cu Google” din antet și încearcă din nou salvarea.');
-        }else{
-          alert('Nu am putut salva acest titlu pe Google Drive:\n\n' + e.message + '\n\nTitlul NU a fost salvat pe Drive — rămâne doar temporar, în sesiunea curentă.');
-        }
+      if(e.code === 'permission-denied'){
+        alert('Titlul NU a fost salvat: contul nu are voie să scrie datele.');
+      }else{
+        alert('Nu am putut salva acest titlu în Firebase:\n\n' + e.message + '\n\nTitlul NU a fost salvat — rămâne doar temporar, în sesiunea curentă.');
       }
       throw e;
     }
@@ -1114,29 +990,6 @@ async function saveTitle(title){
   }
   try{ await putTitle(title); }
   catch(e){ alert('Nu am putut salva acest titlu în baza de date locală. Încearcă din nou.'); throw e; }
-}
-
-async function migrateLocalToDrive(){
-  if(!driveConnected){ alert('Conectează-te mai întâi la Google Drive (butonul de mai sus), apoi încearcă din nou.'); return; }
-  let localTitles;
-  try{ localTitles = await getAllTitles(); }
-  catch(e){ alert('Nu am putut citi baza de date locală.'); return; }
-  if(!localTitles.length){ alert('Nu există titluri locale de urcat pe acest calculator.'); return; }
-  if(!confirm(`Urc ${localTitles.length} titluri locale pe Google Drive acum. Poate dura câteva minute. Continui?`)) return;
-
-  suppressDriveAlerts = true;
-  let ok = 0, failed = 0, firstError = '';
-  for(const t of localTitles){
-    try{
-      const copy = {...t};
-      delete copy.driveFileId; // force-create as new files on Drive, keep local copies untouched
-      await saveTitle(copy);
-      ok++;
-    }catch(e){ failed++; if(!firstError) firstError = e.message; }
-  }
-  suppressDriveAlerts = false;
-  alert(`Gata. ${ok} titluri urcate cu succes${failed ? `, ${failed} eșuate.\n\nPrima eroare: ${firstError}` : '.'}`);
-  await loadData();
 }
 function uid(){ return 'id-' + Date.now() + '-' + Math.random().toString(36).slice(2,8); }
 function escapeHtml(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -1396,18 +1249,18 @@ function openModal(id, opts={}){
   document.getElementById('btnDelete').classList.toggle('hidden', !t);
 
   document.getElementById('batchBanner').classList.toggle('hidden', !opts.batch);
-  document.getElementById('modalBox').classList.toggle('wide', !!opts.batch || !!(t && (t.pdfBlob || t.pdfDriveFileId)));
+  document.getElementById('modalBox').classList.toggle('wide', !!opts.batch || !!(t && (t.pdfBlob || t.pdfPath)));
   document.getElementById('btnSubmitLabel').textContent = opts.batch ? 'Salvează acum (opțional — se salvează automat)' : 'Salvează';
   document.getElementById('btnAttachPdf').classList.toggle('hidden', !!opts.batch);
   showAutofillStatus('', null);
   lastExtractionResult = null;
   if(t && t.pdfBlob){
     renderPdfPreview(t.pdfBlob);
-  }else if(t && t.pdfDriveFileId){
+  }else if(t && t.pdfPath && signedIn){
     document.getElementById('pdfPreviewPane').classList.remove('hidden');
-    document.getElementById('pdfPreviewPane').innerHTML = '<div class="pdf-loading">Se aduce scanul din Google Drive...</div>';
-    driveGetFileBlob(t.pdfDriveFileId).then(blob=>renderPdfPreview(blob)).catch(()=>{
-      document.getElementById('pdfPreviewPane').innerHTML = '<div class="pdf-loading">Nu am putut aduce scanul din Drive.</div>';
+    document.getElementById('pdfPreviewPane').innerHTML = '<div class="pdf-loading">Se aduce scanul...</div>';
+    getScanBlob(t.pdfPath).then(blob=>renderPdfPreview(blob)).catch(()=>{
+      document.getElementById('pdfPreviewPane').innerHTML = '<div class="pdf-loading">Nu am putut aduce scanul.</div>';
     });
   }else if(!opts.batch){
     document.getElementById('pdfPreviewPane').classList.add('hidden');
@@ -1501,8 +1354,7 @@ function gatherFormData(){
     observatii: val('f_observatii'),
     parcele,
     pdfBlob: currentPreviewFile || existing?.pdfBlob || undefined,
-    pdfDriveFileId: existing?.pdfDriveFileId || undefined,
-    driveFileId: existing?.driveFileId || undefined,
+    pdfPath: existing?.pdfPath || undefined,
     extractionStatus: lastExtractionResult ? (lastExtractionResult.ok ? 'ok' : 'eroare') : (existing?.extractionStatus),
     extractionError: lastExtractionResult ? (lastExtractionResult.ok ? '' : lastExtractionResult.message) : (existing?.extractionError)
   };
@@ -1562,15 +1414,8 @@ document.getElementById('attachPdfFile').addEventListener('change', (e)=>{
   e.target.value = '';
 });
 document.getElementById('btnBulkPdf').addEventListener('click', ()=>document.getElementById('bulkPdfFiles').click());
-function extractDriveFolderId(raw){
-  const s = (raw||'').trim();
-  const m = /\/folders\/([a-zA-Z0-9_-]+)/.exec(s);
-  if(m) return m[1];
-  return s.split('?')[0].replace(/\/+$/,'');
-}
-
-document.getElementById('btnHeaderConnect').addEventListener('click', connectGoogleDrive);
-document.getElementById('btnHeaderDisconnect').addEventListener('click', disconnectGoogleDrive);
+document.getElementById('btnHeaderConnect').addEventListener('click', signInWithGoogle);
+document.getElementById('btnHeaderDisconnect').addEventListener('click', signOutOfGoogle);
 document.getElementById('bulkPdfFiles').addEventListener('change', (e)=>{
   if(e.target.files.length) startBatch(e.target.files);
   e.target.value = '';
@@ -1757,7 +1602,7 @@ document.getElementById('importFile').addEventListener('change', async (e)=>{
   e.target.value = '';
 });
 
-initGoogleAuth().then(trySilentReconnect);
+initFirebase().then(ok=>{ if(!ok) loadData(); });
 initPdfFolder();
 </script>
 </body>

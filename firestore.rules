@@ -1,0 +1,22 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Doar conturile Google din listă (cu e-mail verificat) pot citi/scrie titlurile.
+    function allowed() {
+      return request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email in [
+          'valer@varogava.ro',
+          'borleavasi@gmail.com'
+        ];
+    }
+
+    match /titles/{id} {
+      allow read, write: if allowed();
+    }
+
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

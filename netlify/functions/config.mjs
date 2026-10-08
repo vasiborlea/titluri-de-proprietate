@@ -1,12 +1,12 @@
-// Netlify Function: dă aplicației configurarea publică (Google Client ID + ID folder Drive)
-// din variabilele de mediu GOOGLE_CLIENT_ID și DRIVE_FOLDER_ID (Netlify > Site settings > Environment variables).
-// Nu conține secrete: Client ID-ul OAuth e public prin natura lui; aici doar nu mai e scris în cod.
+// Netlify Function: dă aplicației configurarea publică Firebase din variabila de mediu FIREBASE_CONFIG
+// (JSON-ul "firebaseConfig" al aplicației web: apiKey, authDomain, projectId, storageBucket, appId...).
+// Nu conține secrete: cheia web Firebase e publică prin natura ei; accesul îl controlează regulile Firestore/Storage.
 
 export default async (req) => {
   if (req.method !== 'GET') return new Response('Metodă nepermisă.', { status: 405 });
-  const googleClientId = process.env.GOOGLE_CLIENT_ID || '';
-  const driveFolderId = process.env.DRIVE_FOLDER_ID || '';
-  return new Response(JSON.stringify({ googleClientId, driveFolderId }), {
+  let firebaseConfig = null;
+  try { firebaseConfig = JSON.parse(process.env.FIREBASE_CONFIG || ''); } catch { /* neconfigurat */ }
+  return new Response(JSON.stringify({ firebaseConfig }), {
     status: 200,
     headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }
   });
