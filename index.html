@@ -696,11 +696,35 @@ function applyExtractedData(data){
 
 let currentPreviewFile = null;
 
+// O sursă de scan e fie un PDF (File/Blob), fie o listă de imagini JPEG (paginile comprimate salvate în Firestore).
+async function imagePageToCanvas(blob, scale){
+  const bmp = await createImageBitmap(blob);
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(bmp.width * scale);
+  canvas.height = Math.round(bmp.height * scale);
+  canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
+  return canvas;
+}
+
 async function renderPdfPreview(file){
   currentPreviewFile = file;
   const pane = document.getElementById('pdfPreviewPane');
   pane.innerHTML = '<div class="pdf-loading">Se încarcă scanul...</div>';
   pane.classList.remove('hidden');
+  if(Array.isArray(file)){
+    try{
+      pane.innerHTML = '';
+      for(const blob of file){
+        const canvas = await imagePageToCanvas(blob, 1);
+        canvas.title = 'Click pentru a mări';
+        canvas.addEventListener('click', openLightbox);
+        pane.appendChild(canvas);
+      }
+    }catch(e){
+      pane.innerHTML = '<div class="pdf-loading">Nu am putut afișa scanul.</div>';
+    }
+    return;
+  }
   try{
     const buf = await file.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({data: buf}).promise;
@@ -730,6 +754,17 @@ function closeLightbox(){ document.getElementById('pdfLightbox').classList.add('
 async function renderLightboxPages(){
   const container = document.getElementById('lightboxCanvases');
   container.innerHTML = '<div class="pdf-loading">Se încarcă...</div>';
+  if(Array.isArray(currentPreviewFile)){
+    try{
+      container.innerHTML = '';
+      for(const blob of currentPreviewFile){
+        container.appendChild(await imagePageToCanvas(blob, lightboxScale / 2.2));
+      }
+    }catch(e){
+      container.innerHTML = '<div class="pdf-loading">Nu am putut afișa scanul.</div>';
+    }
+    return;
+  }
   try{
     const buf = await currentPreviewFile.arrayBuffer();
     const pdf = await pdfjsLib.getDocument({data: buf}).promise;
@@ -825,7 +860,7 @@ async function deleteTitleRecord(id){
   if(signedIn){
     const t = titles.find(x=>x.id===id);
     await fbDb.collection('titles').doc(id).delete();
-    if(t && t.pdfParts){ await deleteScanParts(id, t.pdfParts); }
+    if(t && (t.scanPages || t.pdfParts)){ await deleteScanParts(id, t.scanPages || t.pdfParts); }
     return;
   }
   throw new Error('Neautentificat');
@@ -944,20 +979,74 @@ function titleToDoc(t){
 
 // Scanurile PDF se păstrează în Firestore (colecția "scans"), împărțite în bucăți base64 sub limita de 1 MiB/document,
 // ca să rămânem pe planul gratuit (Firebase Storage cere planul Blaze cu card).
-const SCAN_CHUNK_CHARS = 700000;
-const SCAN_MAX_BYTES = 8 * 1024 * 1024;
+// Scanurile noi se salvează ca imagini JPEG comprimate (~200 KB/pagină), câte un document Firestore per pagină
+// (`scans/{titleId}_{n}`, câmpul `scanPages` pe titlu). Scanurile vechi (PDF în bucăți, câmpul `pdfParts`) se citesc în continuare.
+const SCAN_TARGET_BYTES = 200 * 1024;
+const SCAN_MAX_EDGE = 1700;   // latura lungă a paginii, în pixeli
+const SCAN_MAX_PAGES = 10;
 
-async function saveScanParts(id, blob){
-  const b64 = await fileToBase64(blob);
-  const parts = Math.ceil(b64.length / SCAN_CHUNK_CHARS);
-  for(let i = 0; i < parts; i++){
-    await fbDb.collection('scans').doc(`${id}_${i}`).set({
-      titleId: id, n: i, data: b64.slice(i * SCAN_CHUNK_CHARS, (i + 1) * SCAN_CHUNK_CHARS)
-    });
-  }
-  return parts;
+function canvasToJpegBlob(canvas, quality){
+  return new Promise(resolve => canvas.toBlob(resolve, 'image/jpeg', quality));
 }
 
+// Randează fiecare pagină a PDF-ului și o comprimă JPEG sub ~200 KB (scade întâi calitatea, apoi rezoluția).
+async function pdfToJpegPages(pdfBlob){
+  const pdf = await pdfjsLib.getDocument({data: await pdfBlob.arrayBuffer()}).promise;
+  const pages = [];
+  const total = Math.min(pdf.numPages, SCAN_MAX_PAGES);
+  for(let i = 1; i <= total; i++){
+    const page = await pdf.getPage(i);
+    const base = page.getViewport({scale: 1});
+    let scale = SCAN_MAX_EDGE / Math.max(base.width, base.height);
+    let blob = null;
+    for(let attempt = 0; attempt < 5; attempt++){
+      const viewport = page.getViewport({scale});
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.round(viewport.width);
+      canvas.height = Math.round(viewport.height);
+      const ctx = canvas.getContext('2d');
+      ctx.fillStyle = '#fff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      await page.render({canvasContext: ctx, viewport}).promise;
+      for(const q of [0.75, 0.65, 0.55, 0.45, 0.38]){
+        blob = await canvasToJpegBlob(canvas, q);
+        if(blob.size <= SCAN_TARGET_BYTES) break;
+      }
+      if(blob.size <= SCAN_TARGET_BYTES) break;
+      scale *= 0.85;
+    }
+    pages.push(blob);
+  }
+  return pages;
+}
+
+async function saveScanPages(id, pageBlobs){
+  for(let i = 0; i < pageBlobs.length; i++){
+    await fbDb.collection('scans').doc(`${id}_${i}`).set({
+      titleId: id, n: i, type: 'jpeg', data: await fileToBase64(pageBlobs[i])
+    });
+  }
+  return pageBlobs.length;
+}
+
+function base64ToBlob(b64, type){
+  const bin = atob(b64);
+  const bytes = new Uint8Array(bin.length);
+  for(let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Blob([bytes], {type});
+}
+
+async function getScanImages(id, count){
+  const pages = [];
+  for(let i = 0; i < count; i++){
+    const d = await fbDb.collection('scans').doc(`${id}_${i}`).get();
+    if(!d.exists) throw new Error('Scan incomplet.');
+    pages.push(base64ToBlob(d.data().data, 'image/jpeg'));
+  }
+  return pages;
+}
+
+// Scanuri vechi: PDF împărțit în bucăți base64.
 async function getScanBlob(id, parts){
   let b64 = '';
   for(let i = 0; i < parts; i++){
@@ -1019,11 +1108,12 @@ async function saveTitle(title){
   if(signedIn){
     try{
       if(!title.id) title.id = uid();
-      if(title.pdfBlob && !title.pdfParts){
-        if(title.pdfBlob.size > SCAN_MAX_BYTES){
-          alert('Scanul PDF are peste 8 MB și nu a fost salvat (datele titlului se salvează normal).');
-        }else{
-          title.pdfParts = await saveScanParts(title.id, title.pdfBlob);
+      if(title.pdfBlob && !title.scanPages && !title.pdfParts){
+        try{
+          title.scanPages = await saveScanPages(title.id, await pdfToJpegPages(title.pdfBlob));
+        }catch(e){
+          // scanul e opțional: datele titlului se salvează oricum
+          alert('Scanul nu a putut fi comprimat/salvat (datele titlului se salvează normal):\n\n' + e.message);
         }
       }
       await fbDb.collection('titles').doc(title.id).set(titleToDoc(title));
@@ -1298,13 +1388,19 @@ function openModal(id, opts={}){
   document.getElementById('btnDelete').classList.toggle('hidden', !t);
 
   document.getElementById('batchBanner').classList.toggle('hidden', !opts.batch);
-  document.getElementById('modalBox').classList.toggle('wide', !!opts.batch || !!(t && (t.pdfBlob || t.pdfParts)));
+  document.getElementById('modalBox').classList.toggle('wide', !!opts.batch || !!(t && (t.pdfBlob || t.scanPages || t.pdfParts)));
   document.getElementById('btnSubmitLabel').textContent = opts.batch ? 'Salvează acum (opțional — se salvează automat)' : 'Salvează';
   document.getElementById('btnAttachPdf').classList.toggle('hidden', !!opts.batch);
   showAutofillStatus('', null);
   lastExtractionResult = null;
   if(t && t.pdfBlob){
     renderPdfPreview(t.pdfBlob);
+  }else if(t && t.scanPages && signedIn){
+    document.getElementById('pdfPreviewPane').classList.remove('hidden');
+    document.getElementById('pdfPreviewPane').innerHTML = '<div class="pdf-loading">Se aduce scanul...</div>';
+    getScanImages(t.id, t.scanPages).then(pages=>renderPdfPreview(pages)).catch(()=>{
+      document.getElementById('pdfPreviewPane').innerHTML = '<div class="pdf-loading">Nu am putut aduce scanul.</div>';
+    });
   }else if(t && t.pdfParts && signedIn){
     document.getElementById('pdfPreviewPane').classList.remove('hidden');
     document.getElementById('pdfPreviewPane').innerHTML = '<div class="pdf-loading">Se aduce scanul...</div>';
@@ -1402,7 +1498,8 @@ function gatherFormData(){
     satAmplasament: val('f_satAmplasament'), comunaAmplasament: val('f_comunaAmplasament'),
     observatii: val('f_observatii'),
     parcele,
-    pdfBlob: currentPreviewFile || existing?.pdfBlob || undefined,
+    pdfBlob: (currentPreviewFile && !Array.isArray(currentPreviewFile) ? currentPreviewFile : undefined) || existing?.pdfBlob || undefined,
+    scanPages: existing?.scanPages || undefined,
     pdfParts: existing?.pdfParts || undefined,
     extractionStatus: lastExtractionResult ? (lastExtractionResult.ok ? 'ok' : 'eroare') : (existing?.extractionStatus),
     extractionError: lastExtractionResult ? (lastExtractionResult.ok ? '' : lastExtractionResult.message) : (existing?.extractionError)
