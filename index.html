@@ -188,9 +188,20 @@
     .form-grid{grid-template-columns:1fr;}
     header{flex-direction:column; align-items:flex-start; gap:10px;}
   }
+  /* Poarta de autentificare: până la autorizare, se vede doar ecranul de conectare */
+  #authGate{display:flex; position:fixed; inset:0; z-index:99999; background:var(--paper); flex-direction:column; align-items:center; justify-content:center; gap:16px; padding:24px; text-align:center;}
+  body.authed #authGate{display:none;}
+  body:not(.authed) > :not(#authGate):not(script){display:none !important;}
 </style>
 </head>
 <body>
+
+<div id="authGate">
+  <h1 style="font-family:var(--serif); font-size:26px; margin:0;">Registrul titlurilor de proprietate</h1>
+  <p id="authGateMsg" style="font-family:var(--mono); font-size:13px; color:var(--ink-soft); max-width:420px; margin:0;">Se verifică autentificarea...</p>
+  <button type="button" class="primary" id="btnGateLogin">Conectează-te cu Google</button>
+  <button type="button" class="ghost" id="btnGateSwitch" style="display:none;">Folosește alt cont</button>
+</div>
 
 <header>
   <div class="brand">
@@ -817,13 +828,7 @@ async function deleteTitleRecord(id){
     if(t && t.pdfParts){ await deleteScanParts(id, t.pdfParts); }
     return;
   }
-  const db = await getDB();
-  return new Promise((resolve, reject)=>{
-    const tx = db.transaction('titluri', 'readwrite');
-    tx.objectStore('titluri').delete(id);
-    tx.oncomplete = ()=>resolve();
-    tx.onerror = ()=>reject(tx.error);
-  });
+  throw new Error('Neautentificat');
 }
 async function getSetting(key){
   const db = await getDB();
@@ -858,6 +863,8 @@ let authListenerAttached = false;
 function updateAuthStatus(text){
   // în antet apar doar avertismentele/erorile; starea normală o arată antetul singur
   authStatusNote = /neconfigurat|eșuată|nu are acces|expirat/.test(text) ? text : '';
+  const gm = document.getElementById('authGateMsg');
+  if(gm && authStatusNote && !signedIn) gm.textContent = authStatusNote;
   updateAuthHeaderUI();
 }
 
@@ -971,26 +978,40 @@ async function deleteScanParts(id, parts){
 }
 // ---------- end Firebase ----------
 
+// Poarta de acces: aplicația se vede DOAR după ce serverul Firebase (regulile Firestore) a acceptat o citire reală.
+// Ascunderea din browser e doar interfață; securitatea reală e în firestore.rules (aplicată de Google, nu de pagină).
+function setAuthorized(ok, msg){
+  document.body.classList.toggle('authed', !!ok);
+  const m = document.getElementById('authGateMsg');
+  if(m && msg) m.textContent = msg;
+  const sw = document.getElementById('btnGateSwitch');
+  if(sw) sw.style.display = (!ok && signedIn) ? '' : 'none';
+  const login = document.getElementById('btnGateLogin');
+  if(login) login.style.display = signedIn ? 'none' : '';
+}
+
 async function loadData(){
   if(signedIn){
     try{
       const snap = await fbDb.collection('titles').get();
       titles = snap.docs.map(d=>({...d.data(), id: d.id}));
       updateAuthStatus('conectat');
+      setAuthorized(true);
     }catch(e){
+      titles = [];
       if(e.code === 'permission-denied'){
         updateAuthStatus('nu are acces — contul nu e în lista de utilizatori permiși');
-        alert(`Contul ${userEmail} nu are acces la date. Conectează-te cu un cont permis.`);
+        setAuthorized(false, `Contul ${userEmail} nu are acces. Conectează-te cu un cont autorizat.`);
       }else{
-        alert('Nu am putut încărca titlurile din Firebase: ' + e.message);
+        setAuthorized(false, 'Nu am putut încărca datele: ' + e.message);
       }
-      titles = [];
     }
     render();
     return;
   }
-  try{ titles = await getAllTitles(); }
-  catch(e){ titles = []; alert('Baza de date locală nu a putut fi deschisă. Folosește un browser modern (Edge, Chrome) și verifică setările de confidențialitate.'); }
+  // Neautentificat: nu se încarcă nimic (nici local) și se arată doar ecranul de conectare.
+  titles = [];
+  setAuthorized(false, authStatusNote || 'Autentifică-te cu contul Google autorizat pentru a continua.');
   render();
 }
 
@@ -1016,8 +1037,8 @@ async function saveTitle(title){
     }
     return;
   }
-  try{ await putTitle(title); }
-  catch(e){ alert('Nu am putut salva acest titlu în baza de date locală. Încearcă din nou.'); throw e; }
+  alert('Nu ești conectat. Conectează-te cu Google ca să salvezi.');
+  throw new Error('Neautentificat');
 }
 function uid(){ return 'id-' + Date.now() + '-' + Math.random().toString(36).slice(2,8); }
 function escapeHtml(s){ return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
@@ -1442,6 +1463,8 @@ document.getElementById('attachPdfFile').addEventListener('change', (e)=>{
   e.target.value = '';
 });
 document.getElementById('btnBulkPdf').addEventListener('click', ()=>document.getElementById('bulkPdfFiles').click());
+document.getElementById('btnGateLogin').addEventListener('click', signInWithGoogle);
+document.getElementById('btnGateSwitch').addEventListener('click', signOutOfGoogle);
 document.getElementById('btnHeaderConnect').addEventListener('click', signInWithGoogle);
 document.getElementById('btnHeaderDisconnect').addEventListener('click', signOutOfGoogle);
 document.getElementById('bulkPdfFiles').addEventListener('change', (e)=>{
@@ -1619,7 +1642,8 @@ document.getElementById('importFile').addEventListener('change', async (e)=>{
     for(const item of imported){
       if(item && item.numarTitlu){
         const record = {...item, id: uid(), createdAt: Date.now(), parcele: item.parcele || []};
-        await putTitle(record);
+        delete record.pdfParts; // scanurile nu se importă din JSON
+        await saveTitle(record);
         titles.push(record);
         added++;
       }
