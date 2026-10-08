@@ -209,7 +209,6 @@
     <button class="ghost" id="btnImport">Importă JSON</button>
     <button class="ghost" id="btnBulkPdf">Introducere rapidă din PDF-uri</button>
     <input type="file" id="bulkPdfFiles" accept="application/pdf" multiple style="display:none">
-    <button class="ghost" id="btnSettings">Setări</button>
     <input type="file" id="importFile" accept="application/json" style="display:none">
     <button class="primary" id="btnNew">+ Titlu nou</button>
   </div>
@@ -374,40 +373,6 @@
   </div>
 </div>
 
-<div class="modal-overlay hidden" id="settingsOverlay">
-  <div class="modal" style="max-width:560px;">
-    <h2>Setări</h2>
-    <div class="form-grid">
-      <div class="full">
-        <div class="filter-note">Autocompletarea din PDF rulează pe server (Netlify); cheia Anthropic nu mai este în aplicație.</div>
-      </div>
-      <div class="full" style="border-top:1px solid var(--line); padding-top:14px; margin-top:4px;">
-        <label>Google Client ID (pentru sincronizare Google Drive)</label>
-        <input type="text" id="s_googleClientId" placeholder="...apps.googleusercontent.com">
-      </div>
-      <div class="full">
-        <label>ID-ul folderului Google Drive partajat</label>
-        <input type="text" id="s_driveFolderId" placeholder="ID-ul din URL-ul folderului">
-        <div class="filter-note">Titlurile se salvează ca fișiere în acest folder, vizibile tuturor celor cu care îl partajezi. Fiecare calculator trebuie să aibă completate aceleași două câmpuri de mai sus.</div>
-      </div>
-      <div class="full" style="display:flex; align-items:center; gap:12px;">
-        <button type="button" class="ghost" id="btnConnectDrive">Conectează Google Drive</button>
-        <span class="filter-note" id="driveConnectStatus" style="margin:0;">neconectat</span>
-      </div>
-      <div class="full" style="border-top:1px solid var(--line); padding-top:14px;">
-        <button type="button" class="ghost" id="btnMigrateLocal" style="width:100%;">Urcă baza de date locală pe Google Drive</button>
-        <div class="filter-note">Folosește asta o singură dată, dacă ai titluri introduse local (pe acest calculator) înainte să fi mers sincronizarea cu Drive. Trebuie să fii deja conectat la Google Drive mai sus.</div>
-      </div>
-    </div>
-    <div class="modal-actions">
-      <div></div>
-      <div class="right">
-        <button type="button" class="ghost" id="btnCloseSettings">Închide</button>
-        <button type="button" class="primary" id="btnSaveSettings">Salvează</button>
-      </div>
-    </div>
-  </div>
-</div>
 
 <div class="lightbox-overlay hidden" id="pdfLightbox">
   <div class="lightbox-toolbar">
@@ -886,9 +851,10 @@ let driveConnected = false;
 
 let driveUserEmail = '';
 
+let driveStatusNote = '';
 function updateDriveStatus(text){
-  const el = document.getElementById('driveConnectStatus');
-  if(el) el.textContent = text;
+  // în antet apar doar avertismentele/erorile; starea normală (conectat/neconectat) o arată antetul singur
+  driveStatusNote = /neconfigurat|eșuată|expirat|0 fișiere/.test(text) ? text : '';
   updateDriveHeaderUI();
 }
 
@@ -897,7 +863,7 @@ function updateDriveHeaderUI(){
   const textEl = document.getElementById('driveHeaderText');
   if(!box || !textEl) return;
   box.classList.toggle('connected', driveConnected);
-  textEl.textContent = driveConnected ? (`Google Drive: ${driveUserEmail || 'conectat'}`) : 'neconectat la Google Drive';
+  textEl.textContent = driveStatusNote || (driveConnected ? (`Google Drive: ${driveUserEmail || 'conectat'}`) : 'neconectat la Google Drive');
   document.getElementById('btnHeaderDisconnect').style.display = driveConnected ? '' : 'none';
 }
 
@@ -909,14 +875,24 @@ async function fetchGoogleUserInfo(){
   }catch(e){ driveUserEmail = ''; }
 }
 
-// App-level defaults — the same for every device/user of this deployment, no setup needed.
-const DEFAULT_GOOGLE_CLIENT_ID = '572890268158-ge5ihc0jbb7fbo3pomg02lv3vocac2rp.apps.googleusercontent.com';
-const DEFAULT_DRIVE_FOLDER_ID = '1rJ8QwpIvm34z340uhXXsbd6RRuokMDq5';
+// Configurarea (Google Client ID + ID folder Drive) vine de la server, din variabilele de mediu Netlify
+// GOOGLE_CLIENT_ID și DRIVE_FOLDER_ID, prin /api/config. Nu mai e scrisă în cod și nu există ecran de Setări.
+let appConfig = null;
+async function loadAppConfig(){
+  if(appConfig) return appConfig;
+  try{
+    const res = await fetch('/api/config', {cache:'no-store'});
+    if(res.ok) appConfig = await res.json();
+  }catch(e){ /* rămâne null */ }
+  return appConfig;
+}
 
 async function initGoogleAuth(){
-  const clientId = (await getSetting('googleClientId')) || DEFAULT_GOOGLE_CLIENT_ID;
-  const folderId = (await getSetting('driveFolderId')) || DEFAULT_DRIVE_FOLDER_ID;
-  if(!clientId || !folderId || !window.google || !google.accounts){ updateDriveStatus('neconectat'); return; }
+  const cfg = await loadAppConfig();
+  const clientId = cfg && cfg.googleClientId;
+  const folderId = cfg && cfg.driveFolderId;
+  if(!clientId || !folderId){ updateDriveStatus('neconfigurat — setează GOOGLE_CLIENT_ID și DRIVE_FOLDER_ID în Netlify'); return; }
+  if(!window.google || !google.accounts){ updateDriveStatus('neconectat'); return; }
   googleTokenClient = google.accounts.oauth2.initTokenClient({
     client_id: clientId,
     scope: 'https://www.googleapis.com/auth/drive',
@@ -955,7 +931,7 @@ function requestGoogleToken(promptType){
 
 async function connectGoogleDrive(){
   await initGoogleAuth();
-  if(!googleTokenClient){ alert('Completează mai întâi Client ID-ul Google și ID-ul folderului din Setări, apoi apasă Salvează.'); return; }
+  if(!googleTokenClient){ alert('Aplicația nu e configurată: setează variabilele GOOGLE_CLIENT_ID și DRIVE_FOLDER_ID în Netlify (Environment variables) și refă deploy-ul.'); return; }
   try{
     await requestGoogleToken('consent');
     driveConnected = true;
@@ -1013,12 +989,11 @@ async function driveFetch(path, options={}){
 }
 
 async function requireDriveFolderId(){
-  const raw = (await getSetting('driveFolderId')) || DEFAULT_DRIVE_FOLDER_ID;
-  const folderId = extractDriveFolderId(raw);
+  const cfg = await loadAppConfig();
+  const folderId = extractDriveFolderId(cfg && cfg.driveFolderId);
   if(!folderId){
-    throw new Error('ID-ul folderului Google Drive nu e completat în Setări. Deschide Setări, lipește ID-ul folderului partajat și apasă Salvează, apoi reconectează-te.');
+    throw new Error('DRIVE_FOLDER_ID nu este setat în Netlify (Environment variables).');
   }
-  if(folderId !== raw) await setSetting('driveFolderId', folderId); // self-heal a previously mis-pasted value
   return folderId;
 }
 
@@ -1587,15 +1562,6 @@ document.getElementById('attachPdfFile').addEventListener('change', (e)=>{
   e.target.value = '';
 });
 document.getElementById('btnBulkPdf').addEventListener('click', ()=>document.getElementById('bulkPdfFiles').click());
-document.getElementById('btnSettings').addEventListener('click', async ()=>{
-  document.getElementById('s_googleClientId').value = (await getSetting('googleClientId')) || DEFAULT_GOOGLE_CLIENT_ID;
-  document.getElementById('s_driveFolderId').value = (await getSetting('driveFolderId')) || DEFAULT_DRIVE_FOLDER_ID;
-  updateDriveStatus(driveConnected ? 'conectat ✓' : 'neconectat');
-  document.getElementById('settingsOverlay').classList.remove('hidden');
-});
-document.getElementById('btnCloseSettings').addEventListener('click', ()=>{
-  document.getElementById('settingsOverlay').classList.add('hidden');
-});
 function extractDriveFolderId(raw){
   const s = (raw||'').trim();
   const m = /\/folders\/([a-zA-Z0-9_-]+)/.exec(s);
@@ -1603,21 +1569,8 @@ function extractDriveFolderId(raw){
   return s.split('?')[0].replace(/\/+$/,'');
 }
 
-document.getElementById('btnSaveSettings').addEventListener('click', async ()=>{
-  await setSetting('googleClientId', document.getElementById('s_googleClientId').value.trim());
-  const cleanFolderId = extractDriveFolderId(document.getElementById('s_driveFolderId').value);
-  await setSetting('driveFolderId', cleanFolderId);
-  document.getElementById('s_driveFolderId').value = cleanFolderId;
-  await initGoogleAuth();
-  document.getElementById('settingsOverlay').classList.add('hidden');
-});
-document.getElementById('btnConnectDrive').addEventListener('click', connectGoogleDrive);
-document.getElementById('btnMigrateLocal').addEventListener('click', migrateLocalToDrive);
 document.getElementById('btnHeaderConnect').addEventListener('click', connectGoogleDrive);
 document.getElementById('btnHeaderDisconnect').addEventListener('click', disconnectGoogleDrive);
-document.getElementById('settingsOverlay').addEventListener('click', (e)=>{
-  if(e.target.id==='settingsOverlay') document.getElementById('settingsOverlay').classList.add('hidden');
-});
 document.getElementById('bulkPdfFiles').addEventListener('change', (e)=>{
   if(e.target.files.length) startBatch(e.target.files);
   e.target.value = '';
