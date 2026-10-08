@@ -9,7 +9,7 @@ Aplicație web (în română) pentru evidența titlurilor de proprietate române
 - **Autentificare:** Firebase Auth, Google sign-in (proiect Firebase `titluri-de-proprietate`).
 - **Date:** Firestore.
   - `titles/{id}` — un document per titlu (fără `pdfBlob`).
-  - `scans/{titleId}` — scanul salvat ca imagini JPEG în tonuri de gri, într-un singur document `{pages: [base64, ...]}`, cu buget total ~100 KB per titlu (`SCAN_TOTAL_BYTES`, împărțit pe pagini; max 10 pagini). Titlul păstrează `scanPages` = numărul de pagini. Compresia se face în browser cu pdf.js la salvare (`pdfToJpegPages`); autocompletarea AI citește PDF-ul original, nu JPEG-urile. Formatele mai vechi (documente `{titleId}_{n}`, respectiv PDF în bucăți cu `pdfParts`) se citesc în continuare.
+  - `scans/{titleId}` — scanul salvat ca imagini JPEG în tonuri de gri, într-un singur document `{pages: [base64, ...]}`, cu buget total ~50 KB per titlu (`SCAN_TOTAL_BYTES`, împărțit pe pagini; max 10 pagini). Titlul păstrează `scanPages` = numărul de pagini. Compresia se face în browser cu pdf.js la salvare (`pdfToJpegPages`); autocompletarea AI citește PDF-ul original, nu JPEG-urile. Formatele mai vechi (documente `{titleId}_{n}`, respectiv PDF în bucăți cu `pdfParts`) se citesc în continuare.
   - Nu folosim Firebase Storage (cere planul Blaze cu card; vrem să rămânem pe planul gratuit).
 - **Server (Netlify Functions, `netlify/functions/`):**
   - `extract.mjs` → `/api/extract`: primește PDF + ID token Firebase, verifică tokenul (`accounts:lookup`) și `ALLOWED_EMAILS`, apoi apelează Anthropic. Promptul de extragere stă aici, nu în browser.
