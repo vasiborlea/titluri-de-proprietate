@@ -20,6 +20,8 @@ Reguli:
 - STRUCTURA FORMULARULUI cu suprafețele: sunt două tabele. „A. Suprafața primită în EXTRAVILAN” (tip = Extravilan) și „B. Suprafața primită în INTRAVILAN” (tip = Intravilan). Rândurile tipărite (coloana NR. CRT.) sunt: în A: 1 ARABIL, 2 VII, 3 LIVEZI, 4 PĂȘUNI, 5 FÂNEȚE, 6 PĂDURI, 7 ALTE TERENURI NEAGRICOLE; în B: 1 ARABIL, 2 VII, 3 LIVEZI, 4 PĂȘUNI, 5 FÂNEȚE, 6 CURȚI, CONSTRUCȚII, 7 ALTE TERENURI. ATENȚIE: rândul 6 e „Păduri” în extravilan, dar „Curți-construcții” în intravilan; rândul 7 se scrie „Alte terenuri” în ambele.
 - Fiecare rând tipărit e un BLOC cu mai multe linii pentru scris de mână. Categoria unei linii scrise este cea a BLOCULUI TIPĂRIT în care se află linia (după coloana NR. CRT. / CATEGORIA din stânga), nu ce scrie în vecinități sau observații. Un bloc poate avea mai multe linii scrise (ex. 3 la Arabil, 2 la Fânețe): extrage FIECARE linie scrisă ca parcelă separată, de sus în jos, fără să sari vreo linie și fără să unești liniile. Scrie categoria EXACT cu una din valorile din listă.
 - Numele de persoane și de locuri (vecinătăți, observații) se scriu EXACT cum apar în titlu, păstrând majusculele (ex. „TARBA I.”, „PAJUNE COM.”), fără să le convertești în litere mici.
+- OBSERVAȚII: ultima coloană a tabelului are text propriu pe fiecare linie în care e scris ceva; copiază-l chiar dacă același cuvânt apare și la vecinătăți (ex. „VÎLCEAUA” la Vest și la Observații). Nu omite o observație pentru că repetă o vecinătate.
+- Ca răspunsul să fie scurt, la parcele omite cheile care ar fi goale (tarla, parcela, observatii fără text, vecinii necompletați).
 - ORDINEA liniilor: într-un tabel, de sus în jos, numerele de rând (nr. crt.) ale liniilor scrise sunt CRESCĂTOARE (ex. 1,1,1,5,5,6,7); o linie scrisă nu poate aparține unui bloc aflat DEASUPRA blocului liniei precedente. Dacă o linie pare să aparțină unui bloc mai sus (ex. „Pășuni” după „Fânețe”), ai ales greșit blocul: uită-te din nou între ce linii orizontale tipărite se află și alege blocul în care se află efectiv. Atenție: liniile scrise vin una sub alta, deci copiază fiecare vecinătate de pe ACEEAȘI linie orizontală, nu de pe linia de deasupra sau de dedesubt.
 - suprafata: număr întreg în mp, calculat din cele DOUĂ coloane ale tabelului: suprafata = Ha × 10000 + mp. Exemple: Ha „1” și mp „5000” = 15000; Ha „-” sau gol (0 hectare) și mp „8000” = 8000; Ha „2” și mp „0000” = 20000. Nu omite niciodată coloana Ha: verific-o la fiecare linie (cifra de hectare e scrisă mic, înaintea celei de mp).
 - suprafataTotalaMp: pe PRIMA pagină, în fraza „primește în proprietate o suprafață totală de ___ ha ___ mp” citește cele două numere și convertește în mp: Ha × 10000 + mp (ex. „1 ha 4500 mp” = 14500; „6 ha 8000 mp” = 68000). E totalul pe care trebuie să-l însumeze toate parcelele.
@@ -120,21 +122,32 @@ export default async (req) => {
   }
 
   // A doua citire (verificare): aplicația trimite prima citire + problemele găsite de verificările automate
-  // (sume care nu bat cu totalurile, ordine greșită a categoriilor), iar modelul recitește exact acele linii.
+  // (sume care nu bat cu totalurile, ordine greșită a categoriilor), iar modelul recitește exact acele linii și întoarce
+  // DOAR corecturile (nu tot titlul): răspunsul e scurt, deci rapid. Rescrierea întregului JSON la un titlu cu ~20 de parcele
+  // depășea limita de timp a funcției (504).
   let prompt = buildPrompt(body.vocab);
   const retry = body.retry && typeof body.retry === 'object' ? body.retry : null;
-  if (retry && retry.previous) {
+  const isRetry = !!(retry && retry.previous);
+  if (isRetry) {
     const problems = (Array.isArray(retry.problems) ? retry.problems : []).filter(s => typeof s === 'string').slice(0, 8);
     prompt += `
 
-A DOUA CITIRE (verificare). O primă citire a acestui titlu a dat JSON-ul de mai jos, dar verificările automate au găsit probleme.
+=== A DOUA CITIRE (verificare) ===
+În acest apel IGNORĂ formatul JSON de răspuns de mai sus și răspunde cu formatul de corecturi de mai jos.
+O primă citire a acestui titlu a dat JSON-ul următor (parcelele sunt numerotate cu „nr”, de sus în jos, în ordinea din titlu), dar verificările automate au găsit probleme.
 Prima citire:
 ${JSON.stringify(retry.previous).slice(0, 20000)}
 
 Probleme găsite:
 - ${problems.join('\n- ')}
 
-Recitește cu mare atenție, direct din imagine, EXACT liniile și cifrele implicate: în special cifrele scrise de mână (1/7, 3/8, 4/9, 7/9, 0/6), coloana Ha și rândurile TOTAL. Corectează ce e greșit și răspunde cu JSON-ul COMPLET corectat, în același format. Nu schimba ce e deja corect.`;
+Recitește cu mare atenție, direct din imagine, EXACT liniile și cifrele implicate: în special cifrele scrise de mână (1/7, 3/8, 4/9, 5/9, 7/9, 0/6), coloana Ha, rândurile TOTAL și coloana Observații. Răspunde DOAR cu JSON (fără alt text) care conține NUMAI ce trebuie schimbat:
+{"corecturi":[{"nr":5,"camp":"suprafata","valoare":"2992"}],"adauga":[{"dupa":6,"parcela":{"tip":"","categorie":"","suprafata":"","vecinN":"","vecinE":"","vecinS":"","vecinV":"","observatii":""}}],"sterge":[7],"suprafataTotalaMp":"","totalExtravilanMp":"","totalIntravilanMp":"","totalGeneralMp":""}
+- corecturi: câmpuri citite greșit; camp este unul din: tip, categorie, tarla, parcela, suprafata, vecinN, vecinE, vecinS, vecinV, observatii.
+- adauga: linii omise; „dupa” = nr. liniei de deasupra (0 dacă e prima).
+- sterge: nr. liniilor care nu există în titlu.
+- Totalurile (în mp): completează DOAR cele pe care le-ai citit greșit în prima citire.
+Dacă totul e corect, răspunde cu {"corecturi":[],"adauga":[],"sterge":[]}. Nu repeta ce e deja corect.`;
   }
 
   const resp = await fetch('https://api.anthropic.com/v1/messages', {
@@ -146,7 +159,7 @@ Recitește cu mare atenție, direct din imagine, EXACT liniile și cifrele impli
     },
     body: JSON.stringify({
       model: MODEL,
-      max_tokens: MAX_OUTPUT_TOKENS,
+      max_tokens: isRetry ? 2048 : MAX_OUTPUT_TOKENS,
       ...thinkingParam(MODEL),
       messages: [{
         role: 'user',
@@ -175,7 +188,7 @@ Recitește cu mare atenție, direct din imagine, EXACT liniile și cifrele impli
       debug: { stop_reason: out.stop_reason, usage: out.usage }
     });
   }
-  return json(200, { data });
+  return json(200, isRetry ? { patch: data } : { data });
 };
 
 export const config = { path: '/api/extract' };
