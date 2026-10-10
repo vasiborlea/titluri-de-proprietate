@@ -723,28 +723,33 @@ async function extractFromPdf(file){
       lastExtractionResult = {ok:false, message: msg};
       return;
     }
-    let warnings = applyExtractedData(json.data);
+    let data = json.data;
+    let warnings = applyExtractedData(data);
     let verified = false;
-    if(warnings.length){
-      // Verificările au găsit neconcordanțe (sume, ordinea categoriilor): a doua citire, cu problemele concrete indicate modelului.
-      showAutofillStatus('Citire completă, dar am găsit neconcordanțe — verific din nou liniile și cifrele...', null);
+    let retryError = '';
+    // Verificările au găsit neconcordanțe (sume, ordinea categoriilor): până la 2 citiri de verificare, fiecare cu problemele
+    // concrete indicate modelului (răspunde doar cu corecturi). Se păstrează doar corecturile care reduc neconcordanțele.
+    for(let attempt = 1; warnings.length && attempt <= 2; attempt++){
+      showAutofillStatus(`Citire completă, dar am găsit neconcordanțe — verific din nou liniile și cifrele (${attempt}/2)...`, null);
+      let second;
       try{
-        // prima citire se trimite cu parcelele numerotate; modelul răspunde doar cu corecturile (scurt, deci rapid)
-        const numbered = {...json.data, parcele: (json.data.parcele || []).map((p, i) => ({nr: i + 1, ...p}))};
-        const second = await callExtract({previous: numbered, problems: warnings});
-        if(myGen !== extractionGeneration) return;
-        if(second.response.ok && second.json.patch){
-          const merged = applyPatchToData(json.data, second.json.patch);
-          if(checkExtractedTotals(merged).length < warnings.length){
-            warnings = applyExtractedData(merged);
-            verified = true;
-          }
-        }
-      }catch(e){ /* rămâne prima citire */ }
+        // citirea de până acum se trimite cu parcelele numerotate
+        const numbered = {...data, parcele: (data.parcele || []).map((p, i) => ({nr: i + 1, ...p}))};
+        second = await callExtract({previous: numbered, problems: warnings});
+      }catch(e){ retryError = 'nu am putut contacta serverul'; break; }
+      if(myGen !== extractionGeneration) return;
+      if(!second.response.ok || second.json.error){ retryError = second.json.error || ('eroare server ' + second.response.status); break; }
+      if(!second.json.patch) break;
+      const merged = applyPatchToData(data, second.json.patch);
+      if(checkExtractedTotals(merged).length >= warnings.length) break;
+      data = merged;
+      warnings = applyExtractedData(data);
+      verified = true;
     }
     if(warnings.length){
-      showAutofillStatus('Completat automat, dar ATENȚIE: ' + warnings.join(' ') + ' Verifică suprafețele și liniile din tabel față de scan.', 'error');
-      lastExtractionResult = {ok:false, message:'de verificat: ' + warnings.join(' ')};
+      const why = retryError ? ` (citirea de verificare a eșuat: ${retryError})` : '';
+      showAutofillStatus('Completat automat, dar ATENȚIE: ' + warnings.join(' ') + why + ' Verifică suprafețele și liniile din tabel față de scan.', 'error');
+      lastExtractionResult = {ok:false, message:'de verificat: ' + warnings.join(' ') + why};
     }else{
       showAutofillStatus(verified ? 'Completat automat după o a doua citire de verificare — verifică datele înainte de salvare.'
                                   : 'Completat automat din scan — verifică datele înainte de salvare.', 'ok');
