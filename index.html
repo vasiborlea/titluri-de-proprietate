@@ -705,12 +705,15 @@ async function extractFromPdf(file){
   showAutofillStatus('Se completează automat din scan...', null);
   try{
     const b64 = await fileToBase64(file);
-    const response = await fetch('/api/extract', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({idToken, pdfBase64: b64, vocab: getVocabHint()})
-    });
-    const json = await response.json().catch(()=>({}));
+    const callExtract = async (retry) => {
+      const response = await fetch('/api/extract', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({idToken, pdfBase64: b64, vocab: getVocabHint(), retry})
+      });
+      return {response, json: await response.json().catch(()=>({}))};
+    };
+    let {response, json} = await callExtract(null);
     if(myGen !== extractionGeneration) return;
     if(!response.ok || json.error || !json.data){
       const msg = json.error || ('eroare server ' + response.status);
@@ -718,12 +721,26 @@ async function extractFromPdf(file){
       lastExtractionResult = {ok:false, message: msg};
       return;
     }
-    const warnings = applyExtractedData(json.data);
+    let warnings = applyExtractedData(json.data);
+    let verified = false;
+    if(warnings.length){
+      // Verificările au găsit neconcordanțe (sume, ordinea categoriilor): a doua citire, cu problemele concrete indicate modelului.
+      showAutofillStatus('Citire completă, dar am găsit neconcordanțe — verific din nou liniile și cifrele...', null);
+      try{
+        const second = await callExtract({previous: json.data, problems: warnings});
+        if(myGen !== extractionGeneration) return;
+        if(second.response.ok && second.json.data && checkExtractedTotals(second.json.data).length < warnings.length){
+          warnings = applyExtractedData(second.json.data);
+          verified = true;
+        }
+      }catch(e){ /* rămâne prima citire */ }
+    }
     if(warnings.length){
       showAutofillStatus('Completat automat, dar ATENȚIE: ' + warnings.join(' ') + ' Verifică suprafețele și liniile din tabel față de scan.', 'error');
       lastExtractionResult = {ok:false, message:'de verificat: ' + warnings.join(' ')};
     }else{
-      showAutofillStatus('Completat automat din scan — verifică datele înainte de salvare.', 'ok');
+      showAutofillStatus(verified ? 'Completat automat după o a doua citire de verificare — verifică datele înainte de salvare.'
+                                  : 'Completat automat din scan — verifică datele înainte de salvare.', 'ok');
       lastExtractionResult = {ok:true, message:''};
     }
   }catch(e){

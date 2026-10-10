@@ -119,6 +119,24 @@ export default async (req) => {
     return json(413, { error: 'PDF prea mare pentru autocompletare (limită ~4 MB). Completează manual sau comprimă scanul.' });
   }
 
+  // A doua citire (verificare): aplicația trimite prima citire + problemele găsite de verificările automate
+  // (sume care nu bat cu totalurile, ordine greșită a categoriilor), iar modelul recitește exact acele linii.
+  let prompt = buildPrompt(body.vocab);
+  const retry = body.retry && typeof body.retry === 'object' ? body.retry : null;
+  if (retry && retry.previous) {
+    const problems = (Array.isArray(retry.problems) ? retry.problems : []).filter(s => typeof s === 'string').slice(0, 8);
+    prompt += `
+
+A DOUA CITIRE (verificare). O primă citire a acestui titlu a dat JSON-ul de mai jos, dar verificările automate au găsit probleme.
+Prima citire:
+${JSON.stringify(retry.previous).slice(0, 20000)}
+
+Probleme găsite:
+- ${problems.join('\n- ')}
+
+Recitește cu mare atenție, direct din imagine, EXACT liniile și cifrele implicate: în special cifrele scrise de mână (1/7, 3/8, 4/9, 7/9, 0/6), coloana Ha și rândurile TOTAL. Corectează ce e greșit și răspunde cu JSON-ul COMPLET corectat, în același format. Nu schimba ce e deja corect.`;
+  }
+
   const resp = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
@@ -134,7 +152,7 @@ export default async (req) => {
         role: 'user',
         content: [
           { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } },
-          { type: 'text', text: buildPrompt(body.vocab) }
+          { type: 'text', text: prompt }
         ]
       }]
     })
