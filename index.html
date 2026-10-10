@@ -227,8 +227,16 @@
       <span class="menu-title">Distanțe corecte</span>
       <span class="menu-desc">Calculează distanțele laturilor din punctele TopoLT</span>
     </a>
+    <button type="button" class="menu-big hidden" id="btnMenuSetari">
+      <span class="menu-title">Setări</span>
+      <span class="menu-desc">Administrare: conturi cu acces și roluri</span>
+    </button>
   </div>
-  <div class="menu-user"><span id="menuUserEmail"></span><button type="button" class="ghost small" id="btnMenuSignOut">Deconectează</button></div>
+  <div class="menu-user">
+    <span id="menuUserEmail"></span>
+    <button type="button" class="ghost small" id="btnMenuClose">Închide meniul</button>
+    <button type="button" class="ghost small" id="btnMenuSignOut">Deconectează</button>
+  </div>
 </div>
 
 <header>
@@ -1257,8 +1265,16 @@ async function adminRemoveUser(email){
 }
 
 function updateAdminButton(){
-  const btn = document.getElementById('btnAdmin');
-  if(btn) btn.classList.toggle('hidden', !isAdminUser());
+  for(const id of ['btnAdmin', 'btnMenuSetari']){
+    const btn = document.getElementById(id);
+    if(btn) btn.classList.toggle('hidden', !isAdminUser());
+  }
+}
+
+function openAdminSettings(){
+  if(!isAdminUser()) return;
+  document.getElementById('adminOverlay').classList.remove('hidden');
+  refreshAdminList();
 }
 
 // La prima autorizare dintr-o sesiune se arată meniul cu cele două butoane mari; „☰ Meniu” din antet revine la el.
@@ -1270,11 +1286,21 @@ function showMenu(){
 }
 function showTitles(){ document.body.classList.remove('in-menu'); }
 
+// La prima autorizare: meniul de start, sau direct o fereastră dacă adresa are ?view=titluri / ?view=setari
+// (folosit de meniul din pagina „Distanțe corecte”).
+function startView(){
+  const v = new URLSearchParams(location.search).get('view');
+  if(v){ history.replaceState(null, '', location.pathname); }
+  if(v === 'titluri'){ showTitles(); return; }
+  if(v === 'setari'){ showTitles(); openAdminSettings(); return; }
+  showMenu();
+}
+
 function setAuthorized(ok, msg){
   document.body.classList.toggle('authed', !!ok);
-  if(ok && !wasAuthorized){ wasAuthorized = true; showMenu(); }
-  if(!ok){ wasAuthorized = false; document.body.classList.remove('in-menu'); }
   updateAdminButton();
+  if(ok && !wasAuthorized){ wasAuthorized = true; startView(); }
+  if(!ok){ wasAuthorized = false; document.body.classList.remove('in-menu'); }
   const m = document.getElementById('authGateMsg');
   if(m && msg) m.textContent = msg;
   const sw = document.getElementById('btnGateSwitch');
@@ -1770,10 +1796,11 @@ document.getElementById('btnGateSwitch').addEventListener('click', signOutOfGoog
 document.getElementById('btnMenuTitluri').addEventListener('click', showTitles);
 document.getElementById('btnMenu').addEventListener('click', showMenu);
 document.getElementById('btnMenuSignOut').addEventListener('click', signOutOfGoogle);
-document.getElementById('btnAdmin').addEventListener('click', ()=>{
-  if(!isAdminUser()) return;
-  document.getElementById('adminOverlay').classList.remove('hidden');
-  refreshAdminList();
+document.getElementById('btnAdmin').addEventListener('click', openAdminSettings);
+document.getElementById('btnMenuSetari').addEventListener('click', ()=>{ showTitles(); openAdminSettings(); });
+document.getElementById('btnMenuClose').addEventListener('click', showTitles);
+document.addEventListener('keydown', (e)=>{
+  if(e.key === 'Escape' && document.body.classList.contains('in-menu')) showTitles();
 });
 document.getElementById('btnAdminClose').addEventListener('click', ()=> document.getElementById('adminOverlay').classList.add('hidden'));
 document.getElementById('btnAdminAdd').addEventListener('click', adminAddUser);
