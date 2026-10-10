@@ -22,6 +22,15 @@ Aplicație web (în română) pentru evidența titlurilor de proprietate române
 - `setari.html` — pagina de administrare, doar pentru administratori: adaugă/elimină conturi Google, schimbă rolul (Administrator / Utilizator) și bifează aplicațiile permise (Titluri, Distanțe corecte) pentru fiecare cont.
 - `menu.js` — comun celor trei pagini: `AppMenu.loadPerms(db, user)` (permisiunile contului, din `allowedUsers`) și submeniul din butonul „☰ Meniu”. Pagină nouă = adaugă o intrare în `ITEMS` din `menu.js`.
 
+## Autocompletarea din PDF (`netlify/functions/extract.mjs`)
+
+- Model: variabila Netlify `ANTHROPIC_MODEL` (acum `claude-sonnet-5-5`). Haiku 5.5 e mult mai ieftin, dar a citit inconsistent scrisul de mână din tabel (hectare pierdute, linii omise sau puse la altă categorie); Sonnet 5.5 a citit corect titlul de test în ~7,5 s. Funcția oprește „gândirea” (`thinkingParam`) și are `max_tokens` 8192.
+- Limita Netlify pentru funcții sincrone e 10 s: titlurile mari se pot apropia de ea. Dacă apare „eroare server 504”, ridică limita în Netlify (Site configuration → Functions).
+- Structura formularului din titlu (în promptul funcției): tabelul A = extravilan, B = intravilan. Rândurile tipărite: 1 Arabil, 2 Vii, 3 Livezi, 4 Pășuni, 5 Fânețe, **6 Păduri (extravilan) / Curți-construcții (intravilan)**, 7 Alte terenuri. Suprafața = Ha × 10000 + mp (două coloane).
+- Categoriile din aplicație: `CATEGORII` în `index.html` (aceleași valori ca în prompt). `normalizeCategorie` acceptă variante și valorile vechi („Curți-construcții / alte terenuri”, „Altele”).
+- Numerotarea parcelelor (`parcelNumbers`): nr. rândului din titlu + ordinea liniei în aceeași categorie și același tabel: 1.1, 1.2, 5.1... Se calculează la afișare/export, nu se salvează.
+- După autocompletare, `checkExtractedTotals` compară suma parcelelor cu totalurile citite din titlu (extravilan, intravilan, general) și verifică ordinea crescătoare a categoriilor; la nepotrivire, utilizatorul e avertizat, iar titlul apare în „Erori” dacă se salvează în importul în masă.
+
 ## Securitate (de păstrat)
 
 - Nicio cheie secretă în `index.html` sau în repo. `ANTHROPIC_API_KEY` doar în variabilele Netlify.
