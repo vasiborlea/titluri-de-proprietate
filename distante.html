@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="ro">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Distanțe corecte</title>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<style>
+:root{
+  --bg:#E7ECE8; --panel:#F7F9F7; --ink:#1B2A28; --muted:#5E6E6B; --line:#C5D0CB;
+  --accent:#1F4E9C; --accent-ink:#fff; --ok:#2E7D4F; --err:#B3261E; --grid:rgba(31,78,156,.07);
+  box-sizing:border-box;
+  padding-top:env(safe-area-inset-top,0px); padding-bottom:env(safe-area-inset-bottom,0px);
+}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){
+  --bg:#141B1A; --panel:#1C2524; --ink:#E3EAE7; --muted:#95A5A1; --line:#34423F;
+  --accent:#7FA6F0; --accent-ink:#0E1A33; --ok:#6BC493; --err:#F08A80; --grid:rgba(127,166,240,.08);
+}}
+:root[data-theme="dark"]{
+  --bg:#141B1A; --panel:#1C2524; --ink:#E3EAE7; --muted:#95A5A1; --line:#34423F;
+  --accent:#7FA6F0; --accent-ink:#0E1A33; --ok:#6BC493; --err:#F08A80; --grid:rgba(127,166,240,.08);
+}
+*,*::before,*::after{box-sizing:inherit}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font:15px/1.5 "Segoe UI",system-ui,-apple-system,"Segoe UI",sans-serif}
+.wrap{max-width:1180px;margin:0 auto;padding:28px 20px 40px}
+h1{font-size:1.6rem;font-weight:600;margin:0 0 4px;letter-spacing:-.01em}
+.sub{color:var(--muted);margin:0 0 22px;max-width:70ch}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:18px}
+@media (max-width:820px){.grid{grid-template-columns:1fr}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:14px;display:flex;flex-direction:column;min-width:0}
+.panel h2{font-size:1rem;font-weight:600;margin:0 0 8px;display:flex;justify-content:space-between;align-items:baseline;gap:8px}
+.panel h2 small{font-weight:400;color:var(--muted);font-size:.85rem}
+textarea{width:100%;min-height:340px;resize:vertical;border:1px solid var(--line);border-radius:4px;padding:10px;
+  background:var(--bg);color:var(--ink);font:13.5px/1.55 Consolas,ui-monospace,monospace;white-space:pre;overflow:auto}
+textarea:focus,button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.bar{display:flex;flex-wrap:wrap;gap:10px;align-items:center;margin-top:10px}
+button{font:inherit;font-weight:600;border-radius:4px;padding:8px 14px;cursor:pointer;border:1px solid var(--accent);background:var(--accent);color:var(--accent-ink)}
+button.ghost{background:transparent;color:var(--accent)}
+label{display:inline-flex;gap:6px;align-items:center;color:var(--muted);font-size:.9rem}
+input[type=number]{width:52px;font:inherit;padding:3px 6px;border:1px solid var(--line);border-radius:4px;background:var(--bg);color:var(--ink)}
+.seg{display:inline-flex;border:1px solid var(--accent);border-radius:4px;overflow:hidden}
+.seg button{border:0;border-radius:0;padding:6px 12px;background:transparent;color:var(--accent);font-weight:500}
+.seg button+button{border-left:1px solid var(--accent)}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink);font-weight:600}
+.status{font-size:.88rem;margin-top:8px;min-height:1.3em}
+.status.ok{color:var(--ok)} .status.err{color:var(--err)}
+.plan{margin-top:18px}
+.plan svg{width:100%;height:auto;max-height:520px;display:block;border:1px solid var(--line);border-radius:4px;
+  background-color:var(--bg);background-image:linear-gradient(var(--grid) 1px,transparent 1px),linear-gradient(90deg,var(--grid) 1px,transparent 1px);background-size:24px 24px}
+
+/* Poarta de autentificare: conținutul se vede doar după ce Firestore a acceptat o citire reală pentru contul curent */
+.topbar{margin-bottom:14px}
+.topbar a{color:var(--accent);font-weight:600;text-decoration:none}
+.topbar a:hover{text-decoration:underline}
+#gateMsg{display:flex;min-height:100vh;align-items:center;justify-content:center;color:var(--muted);font-size:1rem;padding:24px;text-align:center}
+body.authed #gateMsg{display:none}
+body:not(.authed) .wrap{display:none}
+</style>
+</head>
+<body>
+<div id="gateMsg">Se verifică autentificarea...</div>
+<div class="wrap">
+  <div class="topbar"><a href="/">&larr; Meniu</a></div>
+  <h1>Distanțe corecte</h1>
+  <p class="sub">Lipește punctele exportate din TopoLT (nr, X, Y, Z, cod). Distanțele se calculează automat. Ultima latură închide conturul înapoi la primul punct, cu distanța calculată.</p>
+
+  <div class="grid">
+    <section class="panel">
+      <h2>Puncte din TopoLT <small id="nIn">0 puncte</small></h2>
+      <textarea id="in" spellcheck="false" placeholder="1 639160.183 334529.356 0.000 Grf&#10;2 639163.902 334544.778 0.000 Grf&#10;..."></textarea>
+      <div class="bar">
+        <button class="ghost" id="clear">Golește</button>
+        <label><input type="checkbox" id="close" checked> Închide conturul</label>
+        <label>Zecimale <input type="number" id="dec" min="0" max="4" value="2"></label>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Rezultat <small id="nOut">0 laturi</small></h2>
+      <textarea id="out" readonly spellcheck="false"></textarea>
+      <div class="bar">
+        <span style="color:var(--muted);font-size:.9rem">Coloane</span>
+        <span class="seg" id="cols" role="group" aria-label="Număr de coloane">
+          <button aria-pressed="true" data-c="1">1</button><button aria-pressed="false" data-c="2">2</button><button aria-pressed="false" data-c="3">3</button><button aria-pressed="false" data-c="4">4</button>
+        </span>
+      </div>
+      <div class="bar">
+        <button id="copy">Copiază</button>
+        <button class="ghost" id="dl">Descarcă .txt</button>
+      </div>
+      <div class="status" id="status"></div>
+    </section>
+  </div>
+
+  <section class="panel plan">
+    <h2>Schiță contur <small>verificare vizuală a ordinii punctelor</small></h2>
+    <svg id="svg" viewBox="0 0 800 420" role="img" aria-label="Schița conturului"></svg>
+  </section>
+</div>
+
+<script>
+const $=id=>document.getElementById(id);
+const inp=$('in'), out=$('out'), status=$('status');
+
+function round(v,d){ // rotunjire ca în Excel (jumătatea în sus)
+  const f=Math.pow(10,d); return (Math.round((v+Number.EPSILON*Math.abs(v))*f)/f).toFixed(d);
+}
+function parse(text){
+  const pts=[], bad=[];
+  text.split(/\r?\n/).forEach((line,i)=>{
+    const t=line.trim(); if(!t) return;
+    const p=t.split(/[\s;]+/);
+    const x=parseFloat((p[1]||'').replace(',','.')), y=parseFloat((p[2]||'').replace(',','.'));
+    if(p.length<3||isNaN(x)||isNaN(y)){bad.push(i+1);return;}
+    pts.push({n:p[0],x,y});
+  });
+  return {pts,bad};
+}
+function run(){
+  const {pts,bad}=parse(inp.value);
+  const d=Math.max(0,Math.min(4,parseInt($('dec').value)||0));
+  const closeIt=$('close').checked;
+  const lines=[];
+  const segs=closeIt&&pts.length>2?pts.length:pts.length-1;
+  for(let i=0;i<segs;i++){
+    const a=pts[i], b=pts[(i+1)%pts.length];
+    const dist=Math.hypot(a.x-b.x,a.y-b.y);
+    lines.push(`d ${a.n} - ${b.n} = ${round(dist,d)} m`);
+  }
+  out.value=layout(lines,cols);
+  $('nIn').textContent=pts.length+(pts.length===1?' punct':' puncte');
+  $('nOut').textContent=Math.max(0,lines.length)+(lines.length===1?' latură':' laturi');
+  if(bad.length){status.className='status err';status.textContent='Rânduri ignorate (format necunoscut): '+bad.join(', ');}
+  else{status.className='status';status.textContent='';}
+  draw(pts,closeIt);
+}
+let cols=1;
+function layout(lines,n){
+  if(n<=1||lines.length<2) return lines.join('\n');
+  const rows=Math.ceil(lines.length/n);
+  const blocks=[];
+  for(let c=0;c<n;c++){const b=lines.slice(c*rows,(c+1)*rows); if(b.length) blocks.push(b);}
+  const w=blocks.map(b=>Math.max(...b.map(l=>l.length)));
+  const res=[];
+  for(let r=0;r<rows;r++){
+    let row='';
+    blocks.forEach((b,c)=>{
+      const cell=b[r]||'';
+      row+= c<blocks.length-1 ? cell.padEnd(w[c]+4,' ') : cell;
+    });
+    res.push(row.replace(/\s+$/,''));
+  }
+  return res.join('\n');
+}
+document.querySelectorAll('#cols button').forEach(b=>b.onclick=()=>{
+  cols=+b.dataset.c;
+  document.querySelectorAll('#cols button').forEach(x=>x.setAttribute('aria-pressed',x===b));
+  run();
+});
+function draw(pts,closeIt){
+  const svg=$('svg'); svg.innerHTML='';
+  if(pts.length<2) return;
+  const W=800,H=420,pad=34;
+  const xs=pts.map(p=>p.x), ys=pts.map(p=>p.y);
+  const minX=Math.min(...xs),maxX=Math.max(...xs),minY=Math.min(...ys),maxY=Math.max(...ys);
+  // Stereo70: X = nord (vertical), Y = est (orizontal)
+  const s=Math.min((W-2*pad)/((maxY-minY)||1),(H-2*pad)/((maxX-minX)||1));
+  const ox=(W-(maxY-minY)*s)/2, oy=(H-(maxX-minX)*s)/2;
+  const P=p=>[ox+(p.y-minY)*s, H-oy-(p.x-minX)*s];
+  const cs=getComputedStyle(document.documentElement);
+  const acc=cs.getPropertyValue('--accent').trim(), ink=cs.getPropertyValue('--ink').trim();
+  const ns='http://www.w3.org/2000/svg';
+  const poly=document.createElementNS(ns,closeIt?'polygon':'polyline');
+  poly.setAttribute('points',pts.map(p=>P(p).join(',')).join(' '));
+  poly.setAttribute('fill',closeIt?acc+'18':'none'); poly.setAttribute('stroke',acc); poly.setAttribute('stroke-width','1.8');
+  svg.appendChild(poly);
+  const cx=W/2, cy=H/2;
+  pts.forEach((p,i)=>{
+    const [x,y]=P(p);
+    const c=document.createElementNS(ns,'circle');
+    c.setAttribute('cx',x);c.setAttribute('cy',y);c.setAttribute('r',i===0?5:3);
+    c.setAttribute('fill',i===0?acc:ink); svg.appendChild(c);
+    const t=document.createElementNS(ns,'text');
+    const dx=x-cx, dy=y-cy, L=Math.hypot(dx,dy)||1;
+    t.setAttribute('x',x+dx/L*12); t.setAttribute('y',y+dy/L*12+4);
+    t.setAttribute('text-anchor','middle'); t.setAttribute('font-size','12');
+    t.setAttribute('font-family','Consolas, monospace'); t.setAttribute('fill',ink);
+    t.textContent=p.n; svg.appendChild(t);
+  });
+}
+inp.addEventListener('input',run); $('close').addEventListener('change',run); $('dec').addEventListener('input',run);
+$('clear').onclick=()=>{inp.value='';run();inp.focus();};
+$('copy').onclick=async()=>{
+  if(!out.value) return;
+  try{await navigator.clipboard.writeText(out.value);}catch(e){out.select();document.execCommand('copy');}
+  status.className='status ok';status.textContent='Copiat. Poți lipi direct în Notepad.';
+};
+$('dl').onclick=()=>{
+  if(!out.value) return;
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(new Blob([out.value.replace(/\n/g,'\r\n')+'\r\n'],{type:'text/plain'}));
+  a.download='PUNCTE_final.txt'; a.click();
+};
+run();
+</script>
+
+<script>
+// Poarta de acces: pagina se arată DOAR după ce Firestore acceptă o citire reală pentru contul conectat
+// (regulile din firestore.rules decid). Altfel te trimite la pagina principală, unde te conectezi.
+(async function(){
+  const goHome = () => location.replace('/');
+  try{
+    const res = await fetch('/api/config', {cache: 'no-store'});
+    const cfg = res.ok ? (await res.json()).firebaseConfig : null;
+    if(!cfg || !cfg.apiKey || !window.firebase){ goHome(); return; }
+    if(!firebase.apps.length) firebase.initializeApp(cfg);
+    firebase.auth().onAuthStateChanged(async (user)=>{
+      if(!user){ goHome(); return; }
+      try{
+        await firebase.firestore().collection('titles').limit(1).get();
+        document.body.classList.add('authed');
+      }catch(e){ goHome(); }
+    });
+  }catch(e){ goHome(); }
+})();
+</script>
+</body>
+</html>

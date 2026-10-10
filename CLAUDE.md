@@ -15,6 +15,11 @@ Aplicație web (în română) pentru evidența titlurilor de proprietate române
   - `extract.mjs` → `/api/extract`: primește PDF + ID token Firebase, verifică tokenul (`accounts:lookup`) și accesul (citire de probă în Firestore cu tokenul utilizatorului), apoi apelează Anthropic. Promptul de extragere stă aici, nu în browser.
   - `config.mjs` → `/api/config`: întoarce configurarea web Firebase din `FIREBASE_CONFIG`.
 
+## Pagini
+
+- `index.html` — registrul de titluri. După conectare apare un meniu cu două butoane mari (`#appMenu`): „Titluri” (aplicația) și „Distanțe corecte” (link către `distante.html`); butonul „☰ Meniu” din antet revine la meniu.
+- `distante.html` — instrument de calcul al distanțelor laturilor din punctele TopoLT (X, Y). Calculează doar în browser, nu salvează nimic. Are propria poartă de acces: se arată doar dacă Firestore acceptă o citire pentru contul conectat, altfel trimite la `/`.
+
 ## Securitate (de păstrat)
 
 - Nicio cheie secretă în `index.html` sau în repo. `ANTHROPIC_API_KEY` doar în variabilele Netlify.

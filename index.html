@@ -191,6 +191,17 @@
   /* Poarta de autentificare: până la autorizare, se vede doar ecranul de conectare */
   #authGate{display:flex; position:fixed; inset:0; z-index:99999; background:var(--paper); flex-direction:column; align-items:center; justify-content:center; gap:16px; padding:24px; text-align:center;}
   body.authed #authGate{display:none;}
+  /* Meniul de după conectare: două butoane mari (Titluri / Distanțe corecte) */
+  #appMenu{display:none; position:fixed; inset:0; z-index:99998; background:var(--paper); flex-direction:column; align-items:center; justify-content:center; gap:28px; padding:24px; text-align:center;}
+  body.in-menu{overflow:hidden;}
+  body.in-menu #appMenu{display:flex;}
+  body:not(.authed) #appMenu{display:none;}
+  .menu-buttons{display:flex; gap:20px; flex-wrap:wrap; justify-content:center;}
+  .menu-big{display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; width:min(320px, 86vw); min-height:180px; padding:24px; background:var(--card); border:2px solid var(--moss); border-radius:6px; color:var(--ink); text-decoration:none; cursor:pointer; font-family:var(--serif);}
+  .menu-big:hover, .menu-big:focus-visible{background:var(--moss); color:#fff;}
+  .menu-big .menu-title{font-size:28px; font-weight:600;}
+  .menu-big .menu-desc{font-family:var(--mono); font-size:12px; opacity:0.85;}
+  .menu-user{font-family:var(--mono); font-size:12px; color:var(--ink-soft); display:flex; align-items:center; gap:10px;}
   body:not(.authed) > :not(#authGate):not(script){display:none !important;}
 </style>
 </head>
@@ -201,6 +212,21 @@
   <p id="authGateMsg" style="font-family:var(--mono); font-size:13px; color:var(--ink-soft); max-width:420px; margin:0;">Se verifică autentificarea...</p>
   <button type="button" class="primary" id="btnGateLogin">Conectează-te cu Google</button>
   <button type="button" class="ghost" id="btnGateSwitch" style="display:none;">Folosește alt cont</button>
+</div>
+
+<div id="appMenu">
+  <h1 style="font-family:var(--serif); font-size:26px; margin:0;">Ce vrei să deschizi?</h1>
+  <div class="menu-buttons">
+    <button type="button" class="menu-big" id="btnMenuTitluri">
+      <span class="menu-title">Titluri</span>
+      <span class="menu-desc">Registrul titlurilor de proprietate</span>
+    </button>
+    <a class="menu-big" href="/distante.html">
+      <span class="menu-title">Distanțe corecte</span>
+      <span class="menu-desc">Calculează distanțele laturilor din punctele TopoLT</span>
+    </a>
+  </div>
+  <div class="menu-user"><span id="menuUserEmail"></span><button type="button" class="ghost small" id="btnMenuSignOut">Deconectează</button></div>
 </div>
 
 <header>
@@ -223,6 +249,7 @@
     <button class="ghost" id="btnBulkPdf">Introducere rapidă din PDF-uri</button>
     <input type="file" id="bulkPdfFiles" accept="application/pdf" multiple style="display:none">
     <input type="file" id="importFile" accept="application/json" style="display:none">
+    <button class="ghost" id="btnMenu">☰ Meniu</button>
     <button class="ghost hidden" id="btnAdmin">Setări</button>
     <button class="primary" id="btnNew">+ Titlu nou</button>
   </div>
@@ -1230,8 +1257,19 @@ function updateAdminButton(){
   if(btn) btn.classList.toggle('hidden', !isAdminUser());
 }
 
+// La prima autorizare dintr-o sesiune se arată meniul cu cele două butoane mari; „☰ Meniu” din antet revine la el.
+let wasAuthorized = false;
+function showMenu(){
+  const e = document.getElementById('menuUserEmail');
+  if(e) e.textContent = userEmail;
+  document.body.classList.add('in-menu');
+}
+function showTitles(){ document.body.classList.remove('in-menu'); }
+
 function setAuthorized(ok, msg){
   document.body.classList.toggle('authed', !!ok);
+  if(ok && !wasAuthorized){ wasAuthorized = true; showMenu(); }
+  if(!ok){ wasAuthorized = false; document.body.classList.remove('in-menu'); }
   updateAdminButton();
   const m = document.getElementById('authGateMsg');
   if(m && msg) m.textContent = msg;
@@ -1725,6 +1763,9 @@ document.getElementById('attachPdfFile').addEventListener('change', (e)=>{
 document.getElementById('btnBulkPdf').addEventListener('click', ()=>document.getElementById('bulkPdfFiles').click());
 document.getElementById('btnGateLogin').addEventListener('click', signInWithGoogle);
 document.getElementById('btnGateSwitch').addEventListener('click', signOutOfGoogle);
+document.getElementById('btnMenuTitluri').addEventListener('click', showTitles);
+document.getElementById('btnMenu').addEventListener('click', showMenu);
+document.getElementById('btnMenuSignOut').addEventListener('click', signOutOfGoogle);
 document.getElementById('btnAdmin').addEventListener('click', ()=>{
   if(!isAdminUser()) return;
   document.getElementById('adminOverlay').classList.remove('hidden');
