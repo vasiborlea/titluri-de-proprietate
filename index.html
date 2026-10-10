@@ -791,13 +791,18 @@ function checkExtractedTotals(data){
   const sum = tip => ps.filter(p => !tip || (normalizeTip(p.tip) || 'Extravilan') === tip).reduce((a, p) => a + (num(p.suprafata) || 0), 0);
   const fmt = n => n.toLocaleString('ro-RO') + ' mp';
   const out = [];
-  for(const [tip, tot, label] of [['Extravilan', data.totalExtravilanMp, 'extravilan'], ['Intravilan', data.totalIntravilanMp, 'intravilan']]){
-    const t = num(tot);
-    if(t !== null && sum(tip) !== t) out.push(`Suma parcelelor din ${label} (${fmt(sum(tip))}) diferă de totalul din titlu (${fmt(t)}).`);
-  }
   // totalul de pe prima pagină („suprafață totală de … ha … mp”), altfel totalul general din tabel
   const g = num(data.suprafataTotalaMp) ?? num(data.totalGeneralMp);
-  if(g !== null && sum() !== g) out.push(`Suma tuturor parcelelor (${fmt(sum())}) diferă de totalul din titlu (${fmt(g)}).`);
+  // Dacă suma parcelelor bate cu totalul titlului, suprafețele sunt corecte și totalurile pe tabel nu se mai verifică: cifra de
+  // hectare de acolo e scrisă mic și se citește des greșit (ex. „1 | 2826” citit 2826), ceea ce ar da avertismente false.
+  // Totalurile pe tabel servesc doar la localizarea greșelii când suma NU bate.
+  if(g === null || sum() !== g){
+    for(const [tip, tot, label] of [['Extravilan', data.totalExtravilanMp, 'extravilan'], ['Intravilan', data.totalIntravilanMp, 'intravilan']]){
+      const t = num(tot);
+      if(t !== null && sum(tip) !== t) out.push(`Suma parcelelor din ${label} (${fmt(sum(tip))}) diferă de totalul din titlu (${fmt(t)}).`);
+    }
+    if(g !== null) out.push(`Suma tuturor parcelelor (${fmt(sum())}) diferă de totalul din titlu (${fmt(g)}).`);
+  }
   // În fiecare tabel, de sus în jos, numerele rândurilor tipărite cresc: o categorie cu număr mai mic decât cea de deasupra
   // înseamnă de obicei că o linie a fost pusă la un bloc greșit (suma poate să bată totuși).
   const last = {};
