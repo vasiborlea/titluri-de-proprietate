@@ -691,6 +691,44 @@ function getVocabHint(){
   return getObservationVocabulary().slice(0,150).map(v=>v.word);
 }
 
+// Fragmente la rezoluție mare din pagina cu tabelele (prima pagină „landscape”, altfel ultima), tăiate 2×2 cu suprapunere,
+// în tonuri de gri, JPEG, ca base64. Folosite doar la citirea de verificare: cifrele scrise de mână (ex. 5 citit ca 1) se văd
+// mult mai bine decât pe pagina întreagă micșorată de model.
+const TILE_PAGE_EDGE = 3600;   // latura lungă a paginii randate, în pixeli (aproape rezoluția originală a scanului)
+const TILE_OVERLAP = 0.08;
+async function makeTableTiles(pdfBlob){
+  const pdf = await pdfjsLib.getDocument({data: await pdfBlob.arrayBuffer()}).promise;
+  let page = null;
+  for(let i = 1; i <= pdf.numPages && !page; i++){
+    const pg = await pdf.getPage(i);
+    const v = pg.getViewport({scale: 1});
+    if(v.width > v.height) page = pg;
+  }
+  if(!page) page = await pdf.getPage(pdf.numPages);
+  const base = page.getViewport({scale: 1});
+  const viewport = page.getViewport({scale: TILE_PAGE_EDGE / Math.max(base.width, base.height)});
+  const full = document.createElement('canvas');
+  full.width = Math.round(viewport.width);
+  full.height = Math.round(viewport.height);
+  const fctx = full.getContext('2d');
+  fctx.fillStyle = '#fff';
+  fctx.fillRect(0, 0, full.width, full.height);
+  await page.render({canvasContext: fctx, viewport}).promise;
+  const tw = Math.round(full.width * (0.5 + TILE_OVERLAP)), th = Math.round(full.height * (0.5 + TILE_OVERLAP));
+  const out = [];
+  for(const row of [0, 1]) for(const col of [0, 1]){
+    const c = document.createElement('canvas');
+    c.width = tw; c.height = th;
+    const x = c.getContext('2d');
+    x.drawImage(full, col === 0 ? 0 : full.width - tw, row === 0 ? 0 : full.height - th, tw, th, 0, 0, tw, th);
+    const img = x.getImageData(0, 0, tw, th), d = img.data;
+    for(let p = 0; p < d.length; p += 4){ const g = (d[p] * 0.299 + d[p+1] * 0.587 + d[p+2] * 0.114) | 0; d[p] = d[p+1] = d[p+2] = g; }
+    x.putImageData(img, 0, 0);
+    out.push(await fileToBase64(await canvasToBlob(c, 'image/jpeg', 0.82)));
+  }
+  return out;
+}
+
 async function extractFromPdf(file){
   const myGen = ++extractionGeneration;
   const idToken = signedIn ? await getFirebaseIdToken() : null;
@@ -707,14 +745,16 @@ async function extractFromPdf(file){
   showAutofillStatus('Se completează automat din scan...', null);
   try{
     const b64 = await fileToBase64(file);
-    const callExtract = async (retry) => {
+    // la verificare se trimit fragmentele la rezoluție mare (images) în loc de PDF; fără fragmente, se trimite PDF-ul
+    const callExtract = async (retry, images) => {
       const response = await fetch('/api/extract', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({idToken, pdfBase64: b64, vocab: getVocabHint(), retry})
+        body: JSON.stringify({idToken, pdfBase64: images && images.length ? undefined : b64, vocab: getVocabHint(), retry, images: images && images.length ? images : undefined})
       });
       return {response, json: await response.json().catch(()=>({}))};
     };
+    let tiles = null;   // se generează o singură dată, la prima verificare
     let {response, json} = await callExtract(null);
     if(myGen !== extractionGeneration) return;
     if(!response.ok || json.error || !json.data){
@@ -735,7 +775,12 @@ async function extractFromPdf(file){
       try{
         // citirea de până acum se trimite cu parcelele numerotate
         const numbered = {...data, parcele: (data.parcele || []).map((p, i) => ({nr: i + 1, ...p}))};
-        second = await callExtract({previous: numbered, problems: warnings});
+        if(tiles === null){
+          // dacă fragmentele nu se pot genera la timp (ex. filă ascunsă), verificarea continuă cu PDF-ul
+          try{ tiles = await Promise.race([makeTableTiles(file), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 25000))]); }
+          catch(e){ tiles = []; }
+        }
+        second = await callExtract({previous: numbered, problems: warnings}, tiles);
       }catch(e){ retryError = 'nu am putut contacta serverul'; break; }
       if(myGen !== extractionGeneration) return;
       if(!second.response.ok || second.json.error){ retryError = second.json.error || ('eroare server ' + second.response.status); break; }
