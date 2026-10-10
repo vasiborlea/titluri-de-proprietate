@@ -28,6 +28,22 @@ Reguli:
 
 const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
 const MAX_PDF_BYTES = 4 * 1024 * 1024; // ~4 MB brut => ~5.4 MB base64, sub limita de 6 MB a Netlify
+const MAX_OUTPUT_TOKENS = 8192;        // JSON-ul unui titlu are rar peste ~3000 de tokeni
+
+// Extragerea nu are nevoie de „gândire”: la modelele care o pornesc implicit (ex. Haiku 5.5) tokenii de gândire
+// se scad din max_tokens și răspunsul JSON se taie la jumătate. Oprim gândirea, în forma acceptată de fiecare model.
+function thinkingParam(model) {
+  if (/sonnet-5-5|opus-5-5|opus-5\b|fable|mythos/.test(model)) return /sonnet-5-5/.test(model) ? { thinking: { type: 'between_tools' } } : {};
+  if (/haiku-5-5|sonnet-4-6|opus-4-[678]|sonnet-5\b/.test(model)) return { thinking: { type: 'disabled' } };
+  return {};
+}
+
+// Modelul poate înconjura JSON-ul cu text sau fence-uri de cod: păstrăm doar de la prima „{” până la ultima „}”.
+function extractJsonObject(text) {
+  const s = text.replace(/```json|```/g, '');
+  const a = s.indexOf('{'), b = s.lastIndexOf('}');
+  return a >= 0 && b > a ? s.slice(a, b + 1) : s.trim();
+}
 
 const json = (status, body) => new Response(JSON.stringify(body), {
   status, headers: { 'Content-Type': 'application/json' }
@@ -105,7 +121,8 @@ export default async (req) => {
     },
     body: JSON.stringify({
       model: MODEL,
-      max_tokens: 4096,
+      max_tokens: MAX_OUTPUT_TOKENS,
+      ...thinkingParam(MODEL),
       messages: [{
         role: 'user',
         content: [
@@ -121,12 +138,17 @@ export default async (req) => {
     return json(resp.status >= 400 ? resp.status : 502, { error: out.error?.message || 'Eroare la serviciul AI.' });
   }
 
-  const text = (out.content || []).map(b => b.text || '').join('');
-  const clean = text.replace(/```json|```/g, '').trim();
+  const text = (out.content || []).filter(b => b.type === 'text').map(b => b.text || '').join('');
   let data;
-  try { data = JSON.parse(clean); }
+  try { data = JSON.parse(extractJsonObject(text)); }
   catch {
-    return json(200, { truncated: out.stop_reason === 'max_tokens', error: out.stop_reason === 'max_tokens' ? 'Răspuns AI întrerupt (prea multe parcele).' : 'Nu am putut interpreta răspunsul AI.' });
+    const truncated = out.stop_reason === 'max_tokens';
+    console.log('extract: răspuns ne-interpretabil', JSON.stringify({ model: MODEL, stop_reason: out.stop_reason, usage: out.usage, chars: text.length }));
+    return json(200, {
+      truncated,
+      error: truncated ? 'Răspuns AI întrerupt (prea multe parcele).' : 'Nu am putut interpreta răspunsul AI.',
+      debug: { stop_reason: out.stop_reason, usage: out.usage }
+    });
   }
   return json(200, { data });
 };
