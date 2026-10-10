@@ -1147,14 +1147,14 @@ function titleToDoc(t){
 
 // Scanurile PDF se păstrează în Firestore (colecția "scans"), împărțite în bucăți base64 sub limita de 1 MiB/document,
 // ca să rămânem pe planul gratuit (Firebase Storage cere planul Blaze cu card).
-// Scanurile noi se salvează ca imagini în tonuri de gri, WebP (JPEG dacă browserul nu poate encoda WebP), ~100 KB/pagină,
-// la până la 2000 px pe latura lungă (se citește și scrisul de mână când mărești), într-un singur document Firestore
+// Scanurile noi se salvează ca imagini în tonuri de gri, WebP (JPEG dacă browserul nu poate encoda WebP), ~25 KB/pagină
+// (calitatea scade întâi, apoi rezoluția, de la 2000 px până la minimum 600 px), într-un singur document Firestore
 // per titlu: `scans/{titleId}` = {type, pages: [base64, ...]}; titlul păstrează `scanPages` = numărul de pagini.
 // Formatele vechi (documente `{titleId}_{n}`, PDF în bucăți cu `pdfParts`) se citesc în continuare.
-const SCAN_PAGE_BYTES = 100 * 1024;   // ținta pe pagină
-const SCAN_DOC_BYTES = 650 * 1024;    // total pe titlu: documentul Firestore e limitat la 1 MiB, iar base64 adaugă ~33%
+const SCAN_PAGE_BYTES = 25 * 1024;    // ținta pe pagină: 2 pagini = 50 KB, 3 = 75 KB, 4 = 100 KB
+const SCAN_DOC_BYTES = 650 * 1024;    // plafon pe titlu: documentul Firestore e limitat la 1 MiB, iar base64 adaugă ~33%
 const SCAN_START_EDGE = 2000;         // latura lungă de start a paginii, în pixeli
-const SCAN_MIN_EDGE = 1000;
+const SCAN_MIN_EDGE = 600;            // sub această rezoluție nu mai coborâm, chiar dacă ținta pe pagină nu e atinsă
 const SCAN_MAX_PAGES = 6;
 
 function canvasToBlob(canvas, type, quality){
