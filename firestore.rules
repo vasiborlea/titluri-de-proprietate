@@ -8,19 +8,27 @@ service cloud.firestore {
       return request.auth.token.email.lower();
     }
 
-    // Administratorul aplicației (singurul care poate gestiona lista de conturi).
-    function isAdmin() {
+    // Administratorul principal: hardcodat, nu poate fi retrogradat sau eliminat din aplicație.
+    function isOwner() {
       return verified() && userEmail() == 'borleavasi@gmail.com';
     }
 
-    // Conturi adăugate de administrator din Setări: un document per e-mail în allowedUsers/{email}.
+    // Conturi adăugate din Setări: un document per e-mail în allowedUsers/{email}, cu câmpul role = 'admin' | 'user'.
     function isMember() {
       return verified()
         && exists(/databases/$(database)/documents/allowedUsers/$(userEmail()));
     }
 
+    // Administrator = administratorul principal sau un cont din listă cu role == 'admin'.
+    function isAdmin() {
+      return isOwner()
+        || (isMember()
+            && get(/databases/$(database)/documents/allowedUsers/$(userEmail())).data.get('role', 'user') == 'admin');
+    }
+
+    // Acces la date (titluri și scanuri): administratorul principal + orice cont din listă (admin sau user).
     function allowed() {
-      return isAdmin() || isMember();
+      return isOwner() || isMember();
     }
 
     match /titles/{id} {
@@ -32,8 +40,15 @@ service cloud.firestore {
       allow read, write: if allowed();
     }
 
-    // Lista conturilor cu acces: doar administratorul o citește și o modifică.
+    // Lista conturilor cu acces: administratorii o citesc și o modifică;
+    // fiecare cont își poate citi doar propriul document (ca aplicația să-i afle rolul).
     match /allowedUsers/{email} {
+      allow get: if isAdmin() || (verified() && email == userEmail());
+      allow list, create, update, delete: if isAdmin();
+    }
+
+    // Marcaje interne (ex. migrarea inițială a conturilor existente).
+    match /meta/{id} {
       allow read, write: if isAdmin();
     }
 

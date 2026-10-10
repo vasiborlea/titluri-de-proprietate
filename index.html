@@ -396,9 +396,13 @@
         <label>Adaugă un cont Google cu acces la aplicație și la baza de date</label>
         <div style="display:flex; gap:8px;">
           <input type="email" id="adminNewEmail" placeholder="nume@gmail.com" style="flex:1;">
+          <select id="adminNewRole" style="width:auto;">
+            <option value="user">Utilizator</option>
+            <option value="admin">Administrator</option>
+          </select>
           <button type="button" class="primary" id="btnAdminAdd">Adaugă</button>
         </div>
-        <div class="filter-note">Persoana trebuie să se conecteze exact cu acest cont Google. Accesul se poate retrage oricând, iar efectul e imediat.</div>
+        <div class="filter-note"><b>Utilizator</b>: vede și modifică titlurile și scanurile. <b>Administrator</b>: are și butonul Setări, deci poate adăuga, elimina conturi și schimba roluri. Persoana trebuie să se conecteze exact cu acest cont Google. Accesul se poate retrage oricând, iar efectul e imediat.</div>
       </div>
       <div class="full">
         <label>Conturi cu acces</label>
@@ -1115,29 +1119,67 @@ async function deleteScanParts(id, parts){
 // Administratorul vede butonul „Setări” (doar interfață: dreptul real de a modifica lista e în firestore.rules).
 const ADMIN_EMAIL = 'borleavasi@gmail.com';
 
+// Rolul contului curent: 'owner' (administratorul principal), 'admin' sau 'user'. Se citește din allowedUsers/{email}.
+let currentRole = 'user';
+// Conturile care aveau deja acces înainte de existența acestei liste; se importă o singură dată la prima deschidere a Setărilor.
+const LEGACY_USERS = ['valer@varogava.ro'];
+
 function isAdminUser(){
-  return signedIn && userEmail.toLowerCase() === ADMIN_EMAIL;
+  return signedIn && (currentRole === 'owner' || currentRole === 'admin');
+}
+
+async function loadMyRole(){
+  if(userEmail.toLowerCase() === ADMIN_EMAIL){ currentRole = 'owner'; return; }
+  try{
+    const d = await fbDb.collection('allowedUsers').doc(userEmail.toLowerCase()).get();
+    currentRole = (d.exists && d.data().role === 'admin') ? 'admin' : 'user';
+  }catch(e){ currentRole = 'user'; }
+}
+
+async function seedLegacyUsersOnce(){
+  const flag = await fbDb.collection('meta').doc('seed').get();
+  if(flag.exists) return;
+  for(const email of LEGACY_USERS){
+    const ref = fbDb.collection('allowedUsers').doc(email);
+    if(!(await ref.get()).exists){
+      await ref.set({email, role: 'user', addedBy: 'migrare', addedAt: firebase.firestore.FieldValue.serverTimestamp()});
+    }
+  }
+  await fbDb.collection('meta').doc('seed').set({done: true, at: firebase.firestore.FieldValue.serverTimestamp()});
 }
 
 async function refreshAdminList(){
   const box = document.getElementById('adminUserList');
   box.textContent = 'Se încarcă...';
   try{
+    await seedLegacyUsersOnce();
     const snap = await fbDb.collection('allowedUsers').get();
     const users = snap.docs.map(d=>({email: d.id, ...d.data()})).sort((a,b)=>a.email.localeCompare(b.email));
-    let html = `<div style="padding:6px 0; border-bottom:1px solid var(--line);"><b>${escapeHtml(ADMIN_EMAIL)}</b> <span style="color:var(--ink-soft);">— administrator</span></div>`;
+    const rowStyle = 'display:flex; justify-content:space-between; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--line);';
+    let html = `<div style="${rowStyle}"><span><b>${escapeHtml(ADMIN_EMAIL)}</b></span>
+      <span style="color:var(--ink-soft);">Administrator principal (nu se poate modifica)</span></div>`;
     if(!users.length){
-      html += '<div style="padding:8px 0;">Nu ai adăugat alte conturi încă.</div>';
+      html += '<div style="padding:8px 0;">Nu sunt alte conturi.</div>';
     }
     for(const u of users){
-      html += `<div style="display:flex; justify-content:space-between; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--line);">
+      const isAdm = u.role === 'admin';
+      html += `<div style="${rowStyle}">
         <span>${escapeHtml(u.email)}</span>
-        <button type="button" class="ghost small" data-remove-email="${escapeHtml(u.email)}">Elimină</button>
+        <span style="display:flex; gap:6px; align-items:center;">
+          <select data-role-email="${escapeHtml(u.email)}" style="width:auto;">
+            <option value="user"${isAdm ? '' : ' selected'}>Utilizator</option>
+            <option value="admin"${isAdm ? ' selected' : ''}>Administrator</option>
+          </select>
+          <button type="button" class="ghost small" data-remove-email="${escapeHtml(u.email)}">Elimină</button>
+        </span>
       </div>`;
     }
     box.innerHTML = html;
     box.querySelectorAll('[data-remove-email]').forEach(btn=>{
       btn.addEventListener('click', ()=> adminRemoveUser(btn.dataset.removeEmail));
+    });
+    box.querySelectorAll('[data-role-email]').forEach(sel=>{
+      sel.addEventListener('change', ()=> adminChangeRole(sel.dataset.roleEmail, sel.value));
     });
   }catch(e){
     box.textContent = 'Nu am putut încărca lista: ' + e.message;
@@ -1150,14 +1192,27 @@ async function adminAddUser(){
   if(!/^[^\s@\/]+@[^\s@\/]+\.[^\s@\/]+$/.test(email)){ alert('Introdu o adresă de e-mail validă (cont Google).'); return; }
   if(email === ADMIN_EMAIL){ alert('Acesta este deja contul de administrator.'); return; }
   try{
+    const role = document.getElementById('adminNewRole').value === 'admin' ? 'admin' : 'user';
     await fbDb.collection('allowedUsers').doc(email).set({
-      email, addedBy: userEmail, addedAt: firebase.firestore.FieldValue.serverTimestamp()
+      email, role, addedBy: userEmail, addedAt: firebase.firestore.FieldValue.serverTimestamp()
     });
     input.value = '';
     await refreshAdminList();
   }catch(e){
     alert('Nu am putut adăuga contul: ' + e.message);
   }
+}
+
+async function adminChangeRole(email, role){
+  const newRole = role === 'admin' ? 'admin' : 'user';
+  const label = newRole === 'admin' ? 'Administrator' : 'Utilizator';
+  if(!confirm(`Schimbi rolul contului ${email} în „${label}”?`)){ await refreshAdminList(); return; }
+  try{
+    await fbDb.collection('allowedUsers').doc(email).update({role: newRole});
+  }catch(e){
+    alert('Nu am putut schimba rolul: ' + e.message);
+  }
+  await refreshAdminList();
 }
 
 async function adminRemoveUser(email){
@@ -1192,6 +1247,7 @@ async function loadData(){
       const snap = await fbDb.collection('titles').get();
       titles = snap.docs.map(d=>({...d.data(), id: d.id}));
       updateAuthStatus('conectat');
+      await loadMyRole();
       setAuthorized(true);
     }catch(e){
       titles = [];
