@@ -36,6 +36,8 @@ Reguli:
 - ATENȚIE, unele PDF-uri conțin ACELAȘI titlu scanat de două ori (de exemplu 4 pagini: prima pereche de pagini e o scanare a titlului, a doua pereche e o a doua scanare a aceluiași titlu, poate mai clară sau mai neclară decât prima). Recunoaște acest caz — verifică dacă paginile ulterioare repetă același număr de titlu și același cetățean ca paginile anterioare. Dacă da, NU trata a doua scanare ca titlu sau parcele suplimentare: tratează-le ca aceeași sursă și, pentru fiecare câmp în parte, alege sau combină informația din varianta mai lizibilă dintre cele două scanări (de exemplu, dacă suprafața e clară doar în a doua scanare dar neclară în prima, folosește-o pe cea clară). Rezultatul final trebuie să conțină un singur titlu, cu o singură listă de parcele, nu duplicate.`;
 
 const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
+// Citirea de verificare (rară, răspuns scurt) poate folosi un model mai puternic decât citirea principală.
+const VERIFY_MODEL = process.env.ANTHROPIC_VERIFY_MODEL || MODEL;
 const MAX_PDF_BYTES = 4 * 1024 * 1024; // ~4 MB brut => ~5.4 MB base64, sub limita de 6 MB a Netlify
 const MAX_OUTPUT_TOKENS = 8192;        // JSON-ul unui titlu are rar peste ~3000 de tokeni
 
@@ -168,9 +170,11 @@ Dacă totul e corect, răspunde cu {"corecturi":[],"adauga":[],"sterge":[]}. Nu 
       'anthropic-version': '2023-06-01'
     },
     body: JSON.stringify({
-      model: MODEL,
-      max_tokens: isRetry ? 2048 : MAX_OUTPUT_TOKENS,
-      ...thinkingParam(MODEL),
+      model: isRetry ? VERIFY_MODEL : MODEL,
+      max_tokens: isRetry ? 4096 : MAX_OUTPUT_TOKENS,
+      ...thinkingParam(isRetry ? VERIFY_MODEL : MODEL),
+      // Opus 5.5 gândește mereu (nu se poate opri): efortul controlează cât timp petrece; „low” ține apelul sub limita de timp
+      ...(isRetry && /opus-5/.test(VERIFY_MODEL) ? { output_config: { effort: process.env.ANTHROPIC_VERIFY_EFFORT || 'low' } } : {}),
       messages: [{
         role: 'user',
         content: useImages
