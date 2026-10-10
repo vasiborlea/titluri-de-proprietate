@@ -12,14 +12,15 @@ Aplicație web (în română) pentru evidența titlurilor de proprietate române
   - `scans/{titleId}` — scanul salvat ca imagini JPEG în tonuri de gri, într-un singur document `{pages: [base64, ...]}`, cu buget total ~50 KB per titlu (`SCAN_TOTAL_BYTES`, împărțit pe pagini; max 10 pagini). Titlul păstrează `scanPages` = numărul de pagini. Compresia se face în browser cu pdf.js la salvare (`pdfToJpegPages`); autocompletarea AI citește PDF-ul original, nu JPEG-urile. Formatele mai vechi (documente `{titleId}_{n}`, respectiv PDF în bucăți cu `pdfParts`) se citesc în continuare.
   - Nu folosim Firebase Storage (cere planul Blaze cu card; vrem să rămânem pe planul gratuit).
 - **Server (Netlify Functions, `netlify/functions/`):**
-  - `extract.mjs` → `/api/extract`: primește PDF + ID token Firebase, verifică tokenul (`accounts:lookup`) și `ALLOWED_EMAILS`, apoi apelează Anthropic. Promptul de extragere stă aici, nu în browser.
+  - `extract.mjs` → `/api/extract`: primește PDF + ID token Firebase, verifică tokenul (`accounts:lookup`) și accesul (citire de probă în Firestore cu tokenul utilizatorului), apoi apelează Anthropic. Promptul de extragere stă aici, nu în browser.
   - `config.mjs` → `/api/config`: întoarce configurarea web Firebase din `FIREBASE_CONFIG`.
 
 ## Securitate (de păstrat)
 
 - Nicio cheie secretă în `index.html` sau în repo. `ANTHROPIC_API_KEY` doar în variabilele Netlify.
-- Accesul real la date e în `firestore.rules` (listă de e-mailuri permise, e-mail verificat). Ecranul de login din `index.html` (`#authGate`) e doar interfață; aplicația se arată după ce Firestore acceptă o citire reală.
-- Lista de e-mailuri trebuie ținută la fel în **două** locuri: `firestore.rules` și variabila Netlify `ALLOWED_EMAILS`.
+- Accesul real la date e în `firestore.rules`: administratorul (`borleavasi@gmail.com`, hardcodat în reguli și în `ADMIN_EMAIL` din `index.html`) plus conturile din colecția `allowedUsers/{email}` (un document per e-mail, id = e-mail cu litere mici), gestionate din butonul „Setări” vizibil doar administratorului. Ecranul de login din `index.html` (`#authGate`) e doar interfață; aplicația se arată după ce Firestore acceptă o citire reală.
+- Sursa unică a accesului sunt regulile Firestore. `/api/extract` verifică accesul făcând o citire minimă în Firestore cu tokenul utilizatorului, deci nu există o listă de e-mailuri și în Netlify.
+- Dacă schimbi administratorul, modifică și `isAdmin()` în `firestore.rules` și apoi redeployează regulile.
 - Fără rate limiting pe `/api/extract` — setează o limită lunară de cheltuieli în consola Anthropic.
 - Config web Firebase (apiKey etc.) e publică prin natura ei; nu e secret.
 
@@ -29,7 +30,6 @@ Aplicație web (în română) pentru evidența titlurilor de proprietate române
 |---|---|
 | `ANTHROPIC_API_KEY` | cheia Anthropic (secretă) |
 | `FIREBASE_CONFIG` | JSON `firebaseConfig` al aplicației web |
-| `ALLOWED_EMAILS` | e-mailuri permise pentru autocompletare, separate prin virgulă |
 | `ANTHROPIC_MODEL` | opțional, implicit `claude-sonnet-4-6` |
 
 ## Comenzi utile

@@ -223,6 +223,7 @@
     <button class="ghost" id="btnBulkPdf">Introducere rapidă din PDF-uri</button>
     <input type="file" id="bulkPdfFiles" accept="application/pdf" multiple style="display:none">
     <input type="file" id="importFile" accept="application/json" style="display:none">
+    <button class="ghost hidden" id="btnAdmin">Setări</button>
     <button class="primary" id="btnNew">+ Titlu nou</button>
   </div>
 </header>
@@ -386,6 +387,32 @@
   </div>
 </div>
 
+
+<div class="modal-overlay hidden" id="adminOverlay">
+  <div class="modal" style="max-width:560px;">
+    <h2>Setări administrator</h2>
+    <div class="form-grid">
+      <div class="full">
+        <label>Adaugă un cont Google cu acces la aplicație și la baza de date</label>
+        <div style="display:flex; gap:8px;">
+          <input type="email" id="adminNewEmail" placeholder="nume@gmail.com" style="flex:1;">
+          <button type="button" class="primary" id="btnAdminAdd">Adaugă</button>
+        </div>
+        <div class="filter-note">Persoana trebuie să se conecteze exact cu acest cont Google. Accesul se poate retrage oricând, iar efectul e imediat.</div>
+      </div>
+      <div class="full">
+        <label>Conturi cu acces</label>
+        <div id="adminUserList" class="filter-note">Se încarcă...</div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <div></div>
+      <div class="right">
+        <button type="button" class="ghost" id="btnAdminClose">Închide</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <div class="lightbox-overlay hidden" id="pdfLightbox">
   <div class="lightbox-toolbar">
@@ -1085,8 +1112,72 @@ async function deleteScanParts(id, parts){
 
 // Poarta de acces: aplicația se vede DOAR după ce serverul Firebase (regulile Firestore) a acceptat o citire reală.
 // Ascunderea din browser e doar interfață; securitatea reală e în firestore.rules (aplicată de Google, nu de pagină).
+// Administratorul vede butonul „Setări” (doar interfață: dreptul real de a modifica lista e în firestore.rules).
+const ADMIN_EMAIL = 'borleavasi@gmail.com';
+
+function isAdminUser(){
+  return signedIn && userEmail.toLowerCase() === ADMIN_EMAIL;
+}
+
+async function refreshAdminList(){
+  const box = document.getElementById('adminUserList');
+  box.textContent = 'Se încarcă...';
+  try{
+    const snap = await fbDb.collection('allowedUsers').get();
+    const users = snap.docs.map(d=>({email: d.id, ...d.data()})).sort((a,b)=>a.email.localeCompare(b.email));
+    let html = `<div style="padding:6px 0; border-bottom:1px solid var(--line);"><b>${escapeHtml(ADMIN_EMAIL)}</b> <span style="color:var(--ink-soft);">— administrator</span></div>`;
+    if(!users.length){
+      html += '<div style="padding:8px 0;">Nu ai adăugat alte conturi încă.</div>';
+    }
+    for(const u of users){
+      html += `<div style="display:flex; justify-content:space-between; align-items:center; gap:8px; padding:6px 0; border-bottom:1px solid var(--line);">
+        <span>${escapeHtml(u.email)}</span>
+        <button type="button" class="ghost small" data-remove-email="${escapeHtml(u.email)}">Elimină</button>
+      </div>`;
+    }
+    box.innerHTML = html;
+    box.querySelectorAll('[data-remove-email]').forEach(btn=>{
+      btn.addEventListener('click', ()=> adminRemoveUser(btn.dataset.removeEmail));
+    });
+  }catch(e){
+    box.textContent = 'Nu am putut încărca lista: ' + e.message;
+  }
+}
+
+async function adminAddUser(){
+  const input = document.getElementById('adminNewEmail');
+  const email = input.value.trim().toLowerCase();
+  if(!/^[^\s@\/]+@[^\s@\/]+\.[^\s@\/]+$/.test(email)){ alert('Introdu o adresă de e-mail validă (cont Google).'); return; }
+  if(email === ADMIN_EMAIL){ alert('Acesta este deja contul de administrator.'); return; }
+  try{
+    await fbDb.collection('allowedUsers').doc(email).set({
+      email, addedBy: userEmail, addedAt: firebase.firestore.FieldValue.serverTimestamp()
+    });
+    input.value = '';
+    await refreshAdminList();
+  }catch(e){
+    alert('Nu am putut adăuga contul: ' + e.message);
+  }
+}
+
+async function adminRemoveUser(email){
+  if(!confirm(`Elimini accesul pentru ${email}? Nu va mai putea vedea aplicația și datele.`)) return;
+  try{
+    await fbDb.collection('allowedUsers').doc(email).delete();
+    await refreshAdminList();
+  }catch(e){
+    alert('Nu am putut elimina contul: ' + e.message);
+  }
+}
+
+function updateAdminButton(){
+  const btn = document.getElementById('btnAdmin');
+  if(btn) btn.classList.toggle('hidden', !isAdminUser());
+}
+
 function setAuthorized(ok, msg){
   document.body.classList.toggle('authed', !!ok);
+  updateAdminButton();
   const m = document.getElementById('authGateMsg');
   if(m && msg) m.textContent = msg;
   const sw = document.getElementById('btnGateSwitch');
@@ -1578,6 +1669,15 @@ document.getElementById('attachPdfFile').addEventListener('change', (e)=>{
 document.getElementById('btnBulkPdf').addEventListener('click', ()=>document.getElementById('bulkPdfFiles').click());
 document.getElementById('btnGateLogin').addEventListener('click', signInWithGoogle);
 document.getElementById('btnGateSwitch').addEventListener('click', signOutOfGoogle);
+document.getElementById('btnAdmin').addEventListener('click', ()=>{
+  if(!isAdminUser()) return;
+  document.getElementById('adminOverlay').classList.remove('hidden');
+  refreshAdminList();
+});
+document.getElementById('btnAdminClose').addEventListener('click', ()=> document.getElementById('adminOverlay').classList.add('hidden'));
+document.getElementById('btnAdminAdd').addEventListener('click', adminAddUser);
+document.getElementById('adminNewEmail').addEventListener('keydown', (e)=>{ if(e.key === 'Enter'){ e.preventDefault(); adminAddUser(); } });
+document.getElementById('adminOverlay').addEventListener('click', (e)=>{ if(e.target.id === 'adminOverlay') e.target.classList.add('hidden'); });
 document.getElementById('btnHeaderConnect').addEventListener('click', signInWithGoogle);
 document.getElementById('btnHeaderDisconnect').addEventListener('click', signOutOfGoogle);
 document.getElementById('bulkPdfFiles').addEventListener('change', (e)=>{

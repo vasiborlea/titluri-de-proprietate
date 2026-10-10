@@ -28,22 +28,26 @@ Reguli:
 
 const MODEL = process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-6';
 const MAX_PDF_BYTES = 4 * 1024 * 1024; // ~4 MB brut => ~5.4 MB base64, sub limita de 6 MB a Netlify
-const ALLOWED_EMAILS = (process.env.ALLOWED_EMAILS || '')
-  .split(',').map(s => s.trim().toLowerCase()).filter(Boolean);
 
 const json = (status, body) => new Response(JSON.stringify(body), {
   status, headers: { 'Content-Type': 'application/json' }
 });
 
-// Verifică tokenul de autentificare Firebase (ID token) trimis de aplicație: să fie valid pentru
-// proiectul nostru Firebase (verificat de Google prin accounts:lookup cu cheia web din FIREBASE_CONFIG),
-// cu e-mail verificat, și — dacă ALLOWED_EMAILS e setat — să aparțină unui e-mail din listă.
+// Verifică tokenul de autentificare Firebase (ID token) trimis de aplicație:
+// 1) să fie valid pentru proiectul nostru Firebase (verificat de Google prin accounts:lookup cu cheia web din FIREBASE_CONFIG), cu e-mail verificat;
+// 2) contul să aibă acces la date: facem o citire minimă în Firestore CU tokenul utilizatorului, deci o decid chiar
+//    regulile Firestore (administratorul + conturile din Setări). Nu mai există o listă separată de e-mailuri aici.
 let FIREBASE_API_KEY = '';
-try { FIREBASE_API_KEY = JSON.parse(process.env.FIREBASE_CONFIG || '{}').apiKey || ''; } catch { /* neconfigurat */ }
+let FIREBASE_PROJECT_ID = '';
+try {
+  const fc = JSON.parse(process.env.FIREBASE_CONFIG || '{}');
+  FIREBASE_API_KEY = fc.apiKey || '';
+  FIREBASE_PROJECT_ID = fc.projectId || '';
+} catch { /* neconfigurat */ }
 
 async function verifyCaller(idToken) {
   if (!idToken) return { ok: false, msg: 'Lipsește autentificarea.' };
-  if (!FIREBASE_API_KEY) return { ok: false, msg: 'FIREBASE_CONFIG nu este setat în Netlify.' };
+  if (!FIREBASE_API_KEY || !FIREBASE_PROJECT_ID) return { ok: false, msg: 'FIREBASE_CONFIG nu este setat în Netlify.' };
   const r = await fetch('https://identitytoolkit.googleapis.com/v1/accounts:lookup?key=' + encodeURIComponent(FIREBASE_API_KEY), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
@@ -52,9 +56,12 @@ async function verifyCaller(idToken) {
   if (!r.ok) return { ok: false, msg: 'Sesiune expirată sau invalidă.' };
   const user = ((await r.json()).users || [])[0];
   if (!user || !user.email || !user.emailVerified) return { ok: false, msg: 'Cont fără e-mail verificat.' };
-  if (ALLOWED_EMAILS.length && !ALLOWED_EMAILS.includes(user.email.toLowerCase())) {
-    return { ok: false, msg: 'Contul nu are voie să folosească autocompletarea.' };
-  }
+
+  const probe = await fetch(
+    `https://firestore.googleapis.com/v1/projects/${encodeURIComponent(FIREBASE_PROJECT_ID)}/databases/(default)/documents/titles?pageSize=1`,
+    { headers: { Authorization: 'Bearer ' + idToken } }
+  );
+  if (!probe.ok) return { ok: false, msg: 'Contul nu are acces la aplicație.' };
   return { ok: true };
 }
 

@@ -1,23 +1,40 @@
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Doar conturile Google din listă (cu e-mail verificat) pot citi/scrie titlurile.
+    function verified() {
+      return request.auth != null && request.auth.token.email_verified == true;
+    }
+    function userEmail() {
+      return request.auth.token.email.lower();
+    }
+
+    // Administratorul aplicației (singurul care poate gestiona lista de conturi).
+    function isAdmin() {
+      return verified() && userEmail() == 'borleavasi@gmail.com';
+    }
+
+    // Conturi adăugate de administrator din Setări: un document per e-mail în allowedUsers/{email}.
+    function isMember() {
+      return verified()
+        && exists(/databases/$(database)/documents/allowedUsers/$(userEmail()));
+    }
+
     function allowed() {
-      return request.auth != null
-        && request.auth.token.email_verified == true
-        && request.auth.token.email in [
-          'valer@varogava.ro',
-          'borleavasi@gmail.com'
-        ];
+      return isAdmin() || isMember();
     }
 
     match /titles/{id} {
       allow read, write: if allowed();
     }
 
-    // Scanurile PDF (bucăți base64), tot doar pentru conturile din listă.
+    // Scanurile (imagini JPEG comprimate), tot doar pentru conturile cu acces.
     match /scans/{id} {
       allow read, write: if allowed();
+    }
+
+    // Lista conturilor cu acces: doar administratorul o citește și o modifică.
+    match /allowedUsers/{email} {
+      allow read, write: if isAdmin();
     }
 
     match /{document=**} {
