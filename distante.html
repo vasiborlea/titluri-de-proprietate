@@ -7,6 +7,7 @@
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-app-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-auth-compat.js"></script>
 <script src="https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore-compat.js"></script>
+<script src="/menu.js"></script>
 <style>
   /* Aceeași temă ca registrul de titluri (index.html) */
   :root{
@@ -75,21 +76,6 @@
 
   .hidden{display:none !important;}
 
-  /* Meniul de alegere a ferestrei (se deschide peste pagină din „☰ Meniu”) */
-  #appMenu{display:none; position:fixed; inset:0; z-index:99998; background:rgba(243,244,241,0.97); flex-direction:column; align-items:center; justify-content:center; gap:28px; padding:24px; text-align:center;}
-  body.menu-open{overflow:hidden;}
-  body.menu-open #appMenu{display:flex;}
-  .menu-buttons{display:flex; gap:20px; flex-wrap:wrap; justify-content:center;}
-  .menu-big{display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; width:min(320px, 86vw); min-height:180px; padding:24px; background:var(--card); border:2px solid var(--moss); border-radius:6px; color:var(--ink); text-decoration:none; cursor:pointer; font-family:var(--serif);}
-  .menu-big:hover, .menu-big:focus-visible{background:var(--moss); color:#fff;}
-  .menu-big.current{border-color:var(--gold); border-width:3px;}
-  .menu-big .menu-title{font-size:28px; font-weight:600;}
-  .menu-big .menu-desc{font-family:var(--mono); font-size:12px; opacity:0.85;}
-  .menu-big .menu-badge{font-family:var(--mono); font-size:11px; font-weight:700; color:var(--gold); text-transform:uppercase; letter-spacing:.6px;}
-  .menu-big:hover .menu-badge, .menu-big:focus-visible .menu-badge{color:#fff;}
-  .menu-user{font-family:var(--mono); font-size:12px; color:var(--ink-soft); display:flex; align-items:center; gap:10px; flex-wrap:wrap; justify-content:center;}
-  button.small{padding:4px 9px; font-size:11px;}
-
   /* Poarta de autentificare: conținutul se vede doar după ce Firestore a acceptat o citire reală pentru contul curent */
   #gateMsg{display:flex; min-height:100vh; align-items:center; justify-content:center; color:var(--ink-soft); font-family:var(--mono); font-size:14px; padding:24px; text-align:center;}
   body.authed #gateMsg{display:none;}
@@ -99,29 +85,6 @@
 <body>
 <div id="gateMsg">Se verifică autentificarea...</div>
 
-<div id="appMenu">
-  <h1 style="font-family:var(--serif); font-size:26px; margin:0;">Ce vrei să deschizi?</h1>
-  <div class="menu-buttons">
-    <a class="menu-big" href="/?view=titluri">
-      <span class="menu-title">Titluri</span>
-      <span class="menu-desc">Registrul titlurilor de proprietate</span>
-    </a>
-    <a class="menu-big current" href="#" id="menuCurrent">
-      <span class="menu-badge">pagina curentă</span>
-      <span class="menu-title">Distanțe corecte</span>
-      <span class="menu-desc">Calculează distanțele laturilor din punctele TopoLT</span>
-    </a>
-    <a class="menu-big hidden" href="/?view=setari" id="menuSetari">
-      <span class="menu-title">Setări</span>
-      <span class="menu-desc">Administrare: conturi cu acces și roluri</span>
-    </a>
-  </div>
-  <div class="menu-user">
-    <span id="menuUserEmail"></span>
-    <button type="button" class="ghost small" id="btnMenuClose">Închide meniul</button>
-    <button type="button" class="ghost small" id="btnMenuSignOut">Deconectează</button>
-  </div>
-</div>
 
 <header>
   <div class="head-left">
@@ -281,47 +244,22 @@ run();
 </script>
 
 <script>
-// Meniul „☰ Meniu”: se deschide peste pagină; „Setări” apare doar administratorilor (administratorul principal sau
-// conturi cu role == 'admin' în allowedUsers). Dreptul real de a modifica setările e în firestore.rules.
-function openMenu(){ document.body.classList.add('menu-open'); }
-function closeMenu(){ document.body.classList.remove('menu-open'); }
-async function initMenu(user){
-  const email = (user.email || '').toLowerCase();
-  document.getElementById('menuUserEmail').textContent = email;
-  let admin = email === 'borleavasi@gmail.com';
-  if(!admin){
-    try{
-      const d = await firebase.firestore().collection('allowedUsers').doc(email).get();
-      admin = d.exists && d.data().role === 'admin';
-    }catch(e){ admin = false; }
-  }
-  document.getElementById('menuSetari').classList.toggle('hidden', !admin);
-}
-document.getElementById('btnMenu').addEventListener('click', (e)=>{ e.preventDefault(); openMenu(); });
-document.getElementById('menuCurrent').addEventListener('click', (e)=>{ e.preventDefault(); closeMenu(); });
-document.getElementById('btnMenuClose').addEventListener('click', closeMenu);
-document.getElementById('btnMenuSignOut').addEventListener('click', ()=>{
-  if(window.firebase && firebase.apps.length) firebase.auth().signOut().then(()=>location.replace('/'));
-});
-document.getElementById('appMenu').addEventListener('click', (e)=>{ if(e.target.id === 'appMenu') closeMenu(); });
-document.addEventListener('keydown', (e)=>{ if(e.key === 'Escape') closeMenu(); });
-
-// Poarta de acces: pagina se arată DOAR după ce Firestore acceptă o citire reală pentru contul conectat
-// (regulile din firestore.rules decid). Altfel te trimite la pagina principală, unde te conectezi.
+// Poarta de acces: pagina se arată doar conturilor cu acces la „Distanțe corecte” (permisiunile se citesc din allowedUsers,
+// vezi menu.js). Pagina nu folosește date din baza de date: calculează local, deci poarta e la nivel de pagină.
+// Altfel te trimite la pagina principală, unde te conectezi sau vezi aplicațiile la care ai acces.
 (async function(){
   const goHome = () => location.replace('/');
   try{
     const res = await fetch('/api/config', {cache: 'no-store'});
     const cfg = res.ok ? (await res.json()).firebaseConfig : null;
-    if(!cfg || !cfg.apiKey || !window.firebase){ goHome(); return; }
+    if(!cfg || !cfg.apiKey || !window.firebase || !window.AppMenu){ goHome(); return; }
     if(!firebase.apps.length) firebase.initializeApp(cfg);
     firebase.auth().onAuthStateChanged(async (user)=>{
       if(!user){ goHome(); return; }
-      try{
-        await firebase.firestore().collection('titles').limit(1).get();
-        document.body.classList.add('authed');
-      }catch(e){ goHome(); return; }
-      initMenu(user);
+      const perms = await AppMenu.loadPerms(firebase.firestore(), user);
+      if(!perms.distante){ goHome(); return; }
+      document.body.classList.add('authed');
+      AppMenu.mount(document.getElementById('btnMenu'), {current: 'distante', perms});
     });
   }catch(e){ goHome(); }
 })();
