@@ -759,6 +759,16 @@ function checkExtractedTotals(data){
   }
   const g = num(data.totalGeneralMp);
   if(g !== null && sum() !== g) out.push(`Suma tuturor parcelelor (${fmt(sum())}) diferă de totalul general din titlu (${fmt(g)}).`);
+  // În fiecare tabel, de sus în jos, numerele rândurilor tipărite cresc: o categorie cu număr mai mic decât cea de deasupra
+  // înseamnă de obicei că o linie a fost pusă la un bloc greșit (suma poate să bată totuși).
+  const last = {};
+  ps.forEach((p, i) => {
+    const tip = normalizeTip(p.tip) || 'Extravilan';
+    const nr = nrCrtFor(p.categorie);
+    if(typeof nr !== 'number') return;
+    if(last[tip] !== undefined && nr < last[tip]) out.push(`Parcela ${i + 1} (${normalizeCategorie(p.categorie)}, ${tip.toLowerCase()}) apare după o categorie cu număr mai mare: verifică dacă linia aparține altei categorii.`);
+    last[tip] = Math.max(last[tip] ?? 0, nr);
+  });
   return out;
 }
 
