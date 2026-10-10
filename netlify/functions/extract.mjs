@@ -115,19 +115,29 @@ export default async (req) => {
   const auth = await verifyCaller(body.idToken);
   if (!auth.ok) return json(401, { error: auth.msg });
 
-  const b64 = body.pdfBase64;
-  if (typeof b64 !== 'string' || !b64) return json(400, { error: 'Lipsește PDF-ul.' });
-  if (b64.length * 0.75 > MAX_PDF_BYTES) {
-    return json(413, { error: 'PDF prea mare pentru autocompletare (limită ~4 MB). Completează manual sau comprimă scanul.' });
-  }
-
   // A doua citire (verificare): aplicația trimite prima citire + problemele găsite de verificările automate
   // (sume care nu bat cu totalurile, ordine greșită a categoriilor), iar modelul recitește exact acele linii și întoarce
   // DOAR corecturile (nu tot titlul): răspunsul e scurt, deci rapid. Rescrierea întregului JSON la un titlu cu ~20 de parcele
   // depășea limita de timp a funcției (504).
-  let prompt = buildPrompt(body.vocab);
+  // La verificare, aplicația poate trimite în loc de PDF fragmente decupate din pagina cu tabelele, la rezoluție mare
+  // (`images`: JPEG în base64): cifrele scrise de mână (ex. 5 citit ca 1) se văd mult mai bine decât pe pagina întreagă micșorată.
   const retry = body.retry && typeof body.retry === 'object' ? body.retry : null;
   const isRetry = !!(retry && retry.previous);
+  const images = isRetry && Array.isArray(body.images)
+    ? body.images.filter(s => typeof s === 'string' && s.length > 100).slice(0, 6) : [];
+  const useImages = images.length > 0;
+
+  const b64 = body.pdfBase64;
+  if (!useImages) {
+    if (typeof b64 !== 'string' || !b64) return json(400, { error: 'Lipsește PDF-ul.' });
+    if (b64.length * 0.75 > MAX_PDF_BYTES) {
+      return json(413, { error: 'PDF prea mare pentru autocompletare (limită ~4 MB). Completează manual sau comprimă scanul.' });
+    }
+  } else if (images.reduce((a, s) => a + s.length * 0.75, 0) > MAX_PDF_BYTES) {
+    return json(413, { error: 'Fragmentele trimise sunt prea mari.' });
+  }
+
+  let prompt = buildPrompt(body.vocab);
   if (isRetry) {
     const problems = (Array.isArray(retry.problems) ? retry.problems : []).filter(s => typeof s === 'string').slice(0, 8);
     prompt += `
@@ -141,7 +151,7 @@ ${JSON.stringify(retry.previous).slice(0, 20000)}
 Probleme găsite:
 - ${problems.join('\n- ')}
 
-Recitește cu mare atenție, direct din imagine, EXACT liniile și cifrele implicate: în special cifrele scrise de mână (1/7, 3/8, 4/9, 5/9, 7/9, 0/6), coloana Ha, rândurile TOTAL și coloana Observații. Răspunde DOAR cu JSON (fără alt text) care conține NUMAI ce trebuie schimbat:
+${useImages ? `Primești fragmente decupate la rezoluție mare din pagina cu tabelele (A. extravilan sus, B. intravilan jos; fragmentele se suprapun parțial, deci aceeași linie poate apărea în două). Nu ai prima pagină: totalul din prima pagină apare mai sus, la problemele găsite.\n` : ''}ATENȚIE: mai multe linii pot fi citite greșit în același timp, iar erorile se pot compensa parțial în sumă. NU alege o corectură doar ca să iasă suma: verifică FIECARE cifră din liniile implicate (și din cele vecine) direct în imagine, cu mare atenție la cifrele scrise de mână (1/7, 3/8, 4/9, 5/1, 5/9, 7/9, 0/6) și la coloana Ha. Recitește EXACT liniile și cifrele implicate, rândurile TOTAL și coloana Observații. Răspunde DOAR cu JSON (fără alt text) care conține NUMAI ce trebuie schimbat:
 {"corecturi":[{"nr":5,"camp":"suprafata","valoare":"2992"}],"adauga":[{"dupa":6,"parcela":{"tip":"","categorie":"","suprafata":"","vecinN":"","vecinE":"","vecinS":"","vecinV":"","observatii":""}}],"sterge":[7],"suprafataTotalaMp":"","totalExtravilanMp":"","totalIntravilanMp":"","totalGeneralMp":""}
 - corecturi: câmpuri citite greșit; camp este unul din: tip, categorie, tarla, parcela, suprafata, vecinN, vecinE, vecinS, vecinV, observatii.
 - adauga: linii omise; „dupa” = nr. liniei de deasupra (0 dacă e prima).
@@ -163,10 +173,18 @@ Dacă totul e corect, răspunde cu {"corecturi":[],"adauga":[],"sterge":[]}. Nu 
       ...thinkingParam(MODEL),
       messages: [{
         role: 'user',
-        content: [
-          { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } },
-          { type: 'text', text: prompt }
-        ]
+        content: useImages
+          ? [
+              ...images.flatMap((img, i) => [
+                { type: 'text', text: `Fragment ${i + 1} din ${images.length}${images.length === 4 ? ' (' + ['stânga-sus', 'dreapta-sus', 'stânga-jos', 'dreapta-jos'][i] + ')' : ''}:` },
+                { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: img } }
+              ]),
+              { type: 'text', text: prompt }
+            ]
+          : [
+              { type: 'document', source: { type: 'base64', media_type: 'application/pdf', data: b64 } },
+              { type: 'text', text: prompt }
+            ]
       }]
     })
   });
