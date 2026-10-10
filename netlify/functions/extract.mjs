@@ -10,7 +10,7 @@ Răspunde DOAR cu acest JSON, fără text suplimentar, fără fence-uri de cod:
  "dataEmiterii": "", "cetatean": "", "defunct": "", "mostenitori": "",
  "sat": "", "comuna": "", "satAmplasament": "", "comunaAmplasament": "",
  "observatii": "",
- "totalExtravilanMp": "", "totalIntravilanMp": "", "totalGeneralMp": "",
+ "suprafataTotalaMp": "", "totalExtravilanMp": "", "totalIntravilanMp": "", "totalGeneralMp": "",
  "parcele": [
    {"tip":"Extravilan sau Intravilan","categorie":"una din: Arabil, Vii, Livezi, Pășuni, Fânețe, Păduri, Curți-construcții, Alte terenuri","tarla":"","parcela":"","suprafata":"","vecinN":"","vecinE":"","vecinS":"","vecinV":"","observatii":""}
  ]
@@ -22,6 +22,7 @@ Reguli:
 - Numele de persoane și de locuri (vecinătăți, observații) se scriu EXACT cum apar în titlu, păstrând majusculele (ex. „TARBA I.”, „PAJUNE COM.”), fără să le convertești în litere mici.
 - ORDINEA liniilor: într-un tabel, de sus în jos, numerele de rând (nr. crt.) ale liniilor scrise sunt CRESCĂTOARE (ex. 1,1,1,5,5,6,7); o linie scrisă nu poate aparține unui bloc aflat DEASUPRA blocului liniei precedente. Dacă o linie pare să aparțină unui bloc mai sus (ex. „Pășuni” după „Fânețe”), ai ales greșit blocul: uită-te din nou între ce linii orizontale tipărite se află și alege blocul în care se află efectiv. Atenție: liniile scrise vin una sub alta, deci copiază fiecare vecinătate de pe ACEEAȘI linie orizontală, nu de pe linia de deasupra sau de dedesubt.
 - suprafata: număr întreg în mp, calculat din cele DOUĂ coloane ale tabelului: suprafata = Ha × 10000 + mp. Exemple: Ha „1” și mp „5000” = 15000; Ha „-” sau gol (0 hectare) și mp „8000” = 8000; Ha „2” și mp „0000” = 20000. Nu omite niciodată coloana Ha: verific-o la fiecare linie (cifra de hectare e scrisă mic, înaintea celei de mp).
+- suprafataTotalaMp: pe PRIMA pagină, în fraza „primește în proprietate o suprafață totală de ___ ha ___ mp” citește cele două numere și convertește în mp: Ha × 10000 + mp (ex. „1 ha 4500 mp” = 14500; „6 ha 8000 mp” = 68000). E totalul pe care trebuie să-l însumeze toate parcelele.
 - VERIFICARE OBLIGATORIE cu totalurile din titlu: sub fiecare tabel e un rând „TOTAL” (extravilan, respectiv intravilan), iar în dreapta e „TOTAL GENERAL (A+B)” cu „din care: Arabil, Vii, Livezi, Pășuni, Fânețe, Păduri, Curți construcții, Alte terenuri”. Citește-le în totalExtravilanMp, totalIntravilanMp și totalGeneralMp (în mp, Ha × 10000 + mp; lasă gol dacă nu sunt completate). Suma suprafețelor parcelelor extrase, pe fiecare tabel, trebuie să fie egală cu aceste totaluri; dacă nu e, ai citit greșit o cifră sau ai omis o linie: recitește tabelul înainte de a răspunde.
 - Dacă un câmp nu poate fi descifrat cu certitudine (scris neclar, șters, ambiguu), lasă-l gol ("") — nu ghici și nu inventa valori.
 - Include câte un obiect în "parcele" pentru fiecare linie din tabelul de suprafețe (atât extravilan cât și intravilan, dacă există).

@@ -293,7 +293,7 @@
     </div>
     <div class="filter-group">
       <label>Data titlului</label>
-      <div class="date-row"><input type="text" id="searchDate" placeholder="ZZ-LL-AAAA"></div>
+      <div class="date-row"><input type="text" id="searchDate" placeholder="ZZ.LL.AAAA"></div>
     </div>
 
     <h2 style="margin-top:20px;">FILTRE — PARCELĂ</h2>
@@ -387,7 +387,7 @@
         <div><label>Cod</label><input type="text" id="f_cod"></div>
         <div><label>Județ</label><input type="text" id="f_judet"></div>
 
-        <div><label>Data emiterii (zi-lună-an)</label><input type="text" id="f_dataEmiterii" placeholder="ZZ-LL-AAAA"></div>
+        <div><label>Data emiterii (zi.lună.an)</label><input type="text" id="f_dataEmiterii" placeholder="ZZ.LL.AAAA"></div>
         <div class="full"><label>Cetățeanul / persoana</label><input type="text" id="f_cetatean"></div>
 
         <div><label>Numele defunctului (dacă e cazul)</label><input type="text" id="f_defunct"></div>
@@ -398,6 +398,14 @@
 
         <div><label>Sat unde e situată parcela</label><input type="text" id="f_satAmplasament"></div>
         <div class="full" style="grid-column:2/-1;"><label>Comuna unde e situată parcela</label><input type="text" id="f_comunaAmplasament"></div>
+
+        <div class="full">
+          <label>Suprafață totală din titlu (mp) — de pe prima pagină, transformată din ha în mp</label>
+          <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+            <input type="number" id="f_suprafataTotala" min="0" step="1" placeholder="ex. 14500" style="max-width:200px;">
+            <span class="filter-note" id="totalCompare" style="margin:0;"></span>
+          </div>
+        </div>
 
         <div class="full"><label>Observații generale</label><textarea id="f_observatii"></textarea></div>
       </div>
@@ -455,12 +463,23 @@ function pad2(n){ return String(n).padStart(2,'0'); }
 function isoToRo(iso){
   const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(iso || '');
   if(!m) return '';
-  return `${m[3]}-${m[2]}-${m[1]}`;
+  return `${m[3]}.${m[2]}.${m[1]}`;   // format românesc: zi.lună.an (ex. 05.07.1993)
 }
 function roToIso(ro){
+  // zi.lună.an (ex. 5.07.1993 sau 05.07.1993) -> an-lună-zi (1993-07-05). Până acum ziua și luna erau inversate la salvare.
   const m = /^(\d{1,2})[-./](\d{1,2})[-./](\d{4})$/.exec((ro||'').trim());
   if(!m) return '';
-  return `${m[3]}-${pad2(m[1])}-${pad2(m[2])}`;
+  const zi = Number(m[1]), luna = Number(m[2]);
+  if(luna < 1 || luna > 12 || zi < 1 || zi > 31) return '';
+  return `${m[3]}-${pad2(luna)}-${pad2(zi)}`;
+}
+
+// Titlurile salvate înainte de corectare au data ca an-zi-lună (inversată). Cele salvate corect poartă dataFormat = 2.
+function fixLegacyDate(t){
+  if(t.dataFormat === 2) return;
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(t.dataEmiterii || '');
+  if(m) t.dataEmiterii = `${m[1]}-${m[3]}-${m[2]}`;
+  t.dataFormat = 2;
 }
 
 function guessNumarTitlu(filename){
@@ -728,6 +747,8 @@ function applyExtractedData(data){
   setIfPresent('f_satAmplasament', data.satAmplasament);
   setIfPresent('f_comunaAmplasament', data.comunaAmplasament);
   setIfPresent('f_observatii', data.observatii);
+  const totalDecl = Number(String(data.suprafataTotalaMp ?? '').replace(/[\s.]/g, '').replace(',', '.'));
+  if(Number.isFinite(totalDecl) && totalDecl > 0) document.getElementById('f_suprafataTotala').value = totalDecl;
   if(Array.isArray(data.parcele) && data.parcele.length){
     document.getElementById('parceleContainer').innerHTML = '';
     data.parcele.forEach(p => addParcelaRow(p));
@@ -757,8 +778,9 @@ function checkExtractedTotals(data){
     const t = num(tot);
     if(t !== null && sum(tip) !== t) out.push(`Suma parcelelor din ${label} (${fmt(sum(tip))}) diferă de totalul din titlu (${fmt(t)}).`);
   }
-  const g = num(data.totalGeneralMp);
-  if(g !== null && sum() !== g) out.push(`Suma tuturor parcelelor (${fmt(sum())}) diferă de totalul general din titlu (${fmt(g)}).`);
+  // totalul de pe prima pagină („suprafață totală de … ha … mp”), altfel totalul general din tabel
+  const g = num(data.suprafataTotalaMp) ?? num(data.totalGeneralMp);
+  if(g !== null && sum() !== g) out.push(`Suma tuturor parcelelor (${fmt(sum())}) diferă de totalul din titlu (${fmt(g)}).`);
   // În fiecare tabel, de sus în jos, numerele rândurilor tipărite cresc: o categorie cu număr mai mic decât cea de deasupra
   // înseamnă de obicei că o linie a fost pusă la un bloc greșit (suma poate să bată totuși).
   const last = {};
@@ -902,8 +924,9 @@ const CATEGORII = [
 ];
 function nrCrtFor(cat){ const f = CATEGORII.find(c=>c.value===normalizeCategorie(cat)); return f ? f.nr : '-'; }
 
-// Numerotarea parcelelor: nr. rândului din titlu + ordinea liniei în aceeași categorie și în același tabel
-// (extravilan / intravilan): prima linie de Arabil = 1.1, a doua = 1.2, prima de Fânețe = 5.1 etc.
+// Numerotarea parcelelor: litera tabelului (A = extravilan, B = intravilan) + nr. rândului din titlu + ordinea liniei în
+// aceeași categorie și în același tabel: prima linie de Arabil din extravilan = A1.1, a doua = A1.2, prima de Fânețe
+// din intravilan = B5.1 etc.
 function parcelNumbers(parcele){
   const counts = {};
   return (parcele || []).map(p => {
@@ -911,7 +934,8 @@ function parcelNumbers(parcele){
     if(!cat) return '';
     const key = (normalizeTip(p.tip) || 'Extravilan') + '|' + cat;
     counts[key] = (counts[key] || 0) + 1;
-    return nrCrtFor(cat) + '.' + counts[key];
+    // A = tabelul de extravilan, B = tabelul de intravilan (ca în titlu): A1.1, A1.2, B5.1 ...
+    return ((normalizeTip(p.tip) || 'Extravilan') === 'Intravilan' ? 'B' : 'A') + nrCrtFor(cat) + '.' + counts[key];
   });
 }
 function parcelNrOf(t, p){
@@ -1265,6 +1289,7 @@ async function loadData(){
         const snap = await fbDb.collection('titles').get();
         titles = snap.docs.map(d=>({...d.data(), id: d.id}));
         // categoriile salvate cu denumirile vechi („Curți-construcții / alte terenuri”, „Altele”) se aduc la lista curentă
+        titles.forEach(fixLegacyDate);
         titles.forEach(t => (t.parcele || []).forEach(p => {
           const c = normalizeCategorie(p.categorie); if(c) p.categorie = c;
           const tp = normalizeTip(p.tip); if(tp) p.tip = tp;
@@ -1581,6 +1606,19 @@ function updateTotalsLine(){
   const vals = [...document.querySelectorAll('.p_suprafata')].map(i=>Number(i.value)||0);
   const total = vals.reduce((a,b)=>a+b,0);
   document.getElementById('totalsLine').textContent = 'Suprafață totală: ' + total.toLocaleString('ro-RO') + ' mp';
+  // compară suma parcelelor cu totalul din titlu (câmpul de deasupra observațiilor generale)
+  const decl = Number(document.getElementById('f_suprafataTotala').value);
+  const cmp = document.getElementById('totalCompare');
+  if(cmp){
+    if(decl > 0){
+      const ok = decl === total;
+      cmp.textContent = ok ? '✓ suma parcelelor este egală cu totalul din titlu'
+        : `Atenție: suma parcelelor (${total.toLocaleString('ro-RO')} mp) diferă cu ${Math.abs(total - decl).toLocaleString('ro-RO')} mp de totalul din titlu`;
+      cmp.style.color = ok ? 'var(--moss)' : 'var(--rust)';
+    }else{
+      cmp.textContent = '';
+    }
+  }
 }
 
 function openModal(id, opts={}){
@@ -1621,6 +1659,7 @@ function openModal(id, opts={}){
   set('f_dataEmiterii', isoToRo(t?.dataEmiterii)); set('f_cetatean', t?.cetatean);
   set('f_defunct', t?.defunct); set('f_mostenitori', t?.mostenitori);
   set('f_sat', t?.sat); set('f_comuna', t?.comuna); set('f_observatii', t?.observatii);
+  set('f_suprafataTotala', t?.suprafataTotala);
   set('f_satAmplasament', t?.satAmplasament); set('f_comunaAmplasament', t?.comunaAmplasament);
 
   document.getElementById('parceleContainer').innerHTML = '';
@@ -1694,11 +1733,12 @@ function gatherFormData(){
     id: editingId || uid(),
     createdAt: existing ? existing.createdAt : Date.now(),
     numarTitlu: val('f_numarTitlu'), cod: val('f_cod'), judet: val('f_judet'),
-    dataEmiterii: roToIso(val('f_dataEmiterii')), cetatean: val('f_cetatean'),
+    dataEmiterii: roToIso(val('f_dataEmiterii')), dataFormat: 2, cetatean: val('f_cetatean'),
     defunct: val('f_defunct'), mostenitori: val('f_mostenitori'),
     sat: val('f_sat'), comuna: val('f_comuna'),
     satAmplasament: val('f_satAmplasament'), comunaAmplasament: val('f_comunaAmplasament'),
     observatii: val('f_observatii'),
+    suprafataTotala: val('f_suprafataTotala') !== '' && Number.isFinite(Number(val('f_suprafataTotala'))) ? Number(val('f_suprafataTotala')) : undefined,
     parcele,
     pdfBlob: (currentPreviewFile && !Array.isArray(currentPreviewFile) ? currentPreviewFile : undefined) || existing?.pdfBlob || undefined,
     scanPages: existing?.scanPages || undefined,
@@ -1762,6 +1802,7 @@ document.getElementById('attachPdfFile').addEventListener('change', (e)=>{
   e.target.value = '';
 });
 document.getElementById('btnBulkPdf').addEventListener('click', ()=>document.getElementById('bulkPdfFiles').click());
+document.getElementById('f_suprafataTotala').addEventListener('input', updateTotalsLine);
 document.getElementById('btnGateLogin').addEventListener('click', signInWithGoogle);
 document.getElementById('btnGateSwitch').addEventListener('click', signOutOfGoogle);
 document.getElementById('btnMenuTitluri').addEventListener('click', showTitles);
@@ -1949,6 +1990,7 @@ document.getElementById('importFile').addEventListener('change', async (e)=>{
       if(item && item.numarTitlu){
         const record = {...item, id: uid(), createdAt: Date.now(), parcele: item.parcele || []};
         delete record.pdfParts; // scanurile nu se importă din JSON
+        fixLegacyDate(record);  // JSON-urile exportate înainte de corectare au data inversată
         await saveTitle(record);
         titles.push(record);
         added++;
