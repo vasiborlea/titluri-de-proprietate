@@ -10,14 +10,17 @@ Răspunde DOAR cu acest JSON, fără text suplimentar, fără fence-uri de cod:
  "dataEmiterii": "", "cetatean": "", "defunct": "", "mostenitori": "",
  "sat": "", "comuna": "", "satAmplasament": "", "comunaAmplasament": "",
  "observatii": "",
+ "totalExtravilanMp": "", "totalIntravilanMp": "", "totalGeneralMp": "",
  "parcele": [
-   {"tip":"Extravilan sau Intravilan","categorie":"una din: Arabil, Vii, Livezi, Pășuni, Fânețe, Păduri, Curți-construcții / alte terenuri, Altele","tarla":"","parcela":"","suprafata":"","vecinN":"","vecinE":"","vecinS":"","vecinV":"","observatii":""}
+   {"tip":"Extravilan sau Intravilan","categorie":"una din: Arabil, Vii, Livezi, Pășuni, Fânețe, Păduri, Curți-construcții, Alte terenuri","tarla":"","parcela":"","suprafata":"","vecinN":"","vecinE":"","vecinS":"","vecinV":"","observatii":""}
  ]
 }
 Reguli:
 - dataEmiterii: pe titlurile românești, data e scrisă întotdeauna ca ZI.LUNĂ.AN (ex: "08.09.2006" înseamnă ziua 8, luna 9 — septembrie — NU luna 8/august). Nu presupune formatul american lună-zi-an. Convertește mereu în format YYYY-MM-DD (an-lună-zi) păstrând corect ziua și luna citite.
-- suprafata doar cifre, în mp (dacă e dat în ha și mp, convertește tot în mp).
-- categorie: scrie EXACT una din valorile din listă, fără altă formulare (rândul „Curți, construcții” din tabel se scrie „Curți-construcții / alte terenuri”). Dacă rândul are suprafață completată, nu lăsa categoria goală.
+- STRUCTURA FORMULARULUI cu suprafețele: sunt două tabele. „A. Suprafața primită în EXTRAVILAN” (tip = Extravilan) și „B. Suprafața primită în INTRAVILAN” (tip = Intravilan). Rândurile tipărite (coloana NR. CRT.) sunt: în A: 1 ARABIL, 2 VII, 3 LIVEZI, 4 PĂȘUNI, 5 FÂNEȚE, 6 PĂDURI, 7 ALTE TERENURI NEAGRICOLE; în B: 1 ARABIL, 2 VII, 3 LIVEZI, 4 PĂȘUNI, 5 FÂNEȚE, 6 CURȚI, CONSTRUCȚII, 7 ALTE TERENURI. ATENȚIE: rândul 6 e „Păduri” în extravilan, dar „Curți-construcții” în intravilan; rândul 7 se scrie „Alte terenuri” în ambele.
+- Fiecare rând tipărit e un BLOC cu mai multe linii pentru scris de mână. Categoria unei linii scrise este cea a BLOCULUI TIPĂRIT în care se află linia (după coloana NR. CRT. / CATEGORIA din stânga), nu ce scrie în vecinități sau observații. Un bloc poate avea mai multe linii scrise (ex. 3 la Arabil, 2 la Fânețe): extrage FIECARE linie scrisă ca parcelă separată, de sus în jos, fără să sari vreo linie și fără să unești liniile. Scrie categoria EXACT cu una din valorile din listă.
+- suprafata: număr întreg în mp, calculat din cele DOUĂ coloane ale tabelului: suprafata = Ha × 10000 + mp. Exemple: Ha „1” și mp „5000” = 15000; Ha „-” sau gol (0 hectare) și mp „8000” = 8000; Ha „2” și mp „0000” = 20000. Nu omite niciodată coloana Ha: verific-o la fiecare linie (cifra de hectare e scrisă mic, înaintea celei de mp).
+- VERIFICARE OBLIGATORIE cu totalurile din titlu: sub fiecare tabel e un rând „TOTAL” (extravilan, respectiv intravilan), iar în dreapta e „TOTAL GENERAL (A+B)” cu „din care: Arabil, Vii, Livezi, Pășuni, Fânețe, Păduri, Curți construcții, Alte terenuri”. Citește-le în totalExtravilanMp, totalIntravilanMp și totalGeneralMp (în mp, Ha × 10000 + mp; lasă gol dacă nu sunt completate). Suma suprafețelor parcelelor extrase, pe fiecare tabel, trebuie să fie egală cu aceste totaluri; dacă nu e, ai citit greșit o cifră sau ai omis o linie: recitește tabelul înainte de a răspunde.
 - Dacă un câmp nu poate fi descifrat cu certitudine (scris neclar, șters, ambiguu), lasă-l gol ("") — nu ghici și nu inventa valori.
 - Include câte un obiect în "parcele" pentru fiecare linie din tabelul de suprafețe (atât extravilan cât și intravilan, dacă există).
 - Coloana OBSERVAȚII de lângă fiecare parcelă conține adesea nume de loc sau note (ex: "sub Făget", "Văgaș", "grădina casei", "DOS", "hirește", "după văgaș", "sub cot"). E ULTIMA coloană din tabel, uneori îngustă sau cu scris foarte mărunt/prescurtat — verific-o cu atenție maximă pentru FIECARE rând de parcelă, chiar dacă alte rânduri din același tabel nu au nimic scris acolo. Nu lăsa gol acest câmp doar pentru că e greu de citit — încearcă activ să descifrezi, și lasă gol doar dacă e cu adevărat ilizibil sau vizual gol.

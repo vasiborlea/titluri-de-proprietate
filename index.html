@@ -174,11 +174,12 @@
   .parcele-section{margin-top:22px; border-top:1px solid var(--line); padding-top:16px;}
   .parcele-section h3{font-size:14px; margin:0 0 10px 0; display:flex; justify-content:space-between; align-items:center;}
   .parcele-editor{overflow-x:auto;}
-  .parcela-row{display:grid; grid-template-columns:110px 150px 70px 70px 90px 90px 90px 90px 90px 200px 26px; gap:6px; align-items:start; margin-bottom:6px; padding-bottom:6px; border-bottom:1px dashed var(--line);}
+  .parcela-row .p_nr{font-family:var(--mono); font-size:11px; font-weight:700; color:#fff; background:var(--moss); border-radius:2px; padding:6px 4px; text-align:center; min-height:28px;}
+  .parcela-row{display:grid; grid-template-columns:44px 110px 150px 70px 70px 90px 90px 90px 90px 90px 200px 26px; gap:6px; align-items:start; margin-bottom:6px; padding-bottom:6px; border-bottom:1px dashed var(--line);}
   .parcela-row input, .parcela-row select{font-size:11.5px; padding:5px 6px;}
   .parcela-row .row-del{border:none; background:transparent; color:var(--ink-soft); cursor:pointer; font-size:14px; padding:4px;}
   .parcela-row .row-del:hover{color:var(--rust);}
-  .parcela-headers{display:grid; grid-template-columns:110px 150px 70px 70px 90px 90px 90px 90px 90px 200px 26px; gap:6px; font-family:var(--mono); font-size:10px; color:var(--ink-soft); margin-bottom:6px;}
+  .parcela-headers{display:grid; grid-template-columns:44px 110px 150px 70px 70px 90px 90px 90px 90px 90px 200px 26px; gap:6px; font-family:var(--mono); font-size:10px; color:var(--ink-soft); margin-bottom:6px;}
   .totals-line{font-family:var(--mono); font-size:12px; color:var(--ink-soft); margin-top:10px;}
 
   .modal-actions{display:flex; justify-content:space-between; margin-top:22px; padding-top:16px; border-top:1px solid var(--line);}
@@ -314,8 +315,8 @@
         <option value="Pășuni">4 · Pășuni</option>
         <option value="Fânețe">5 · Fânețe</option>
         <option value="Păduri">6 · Păduri</option>
-        <option value="Curți-construcții / alte terenuri">7 · Curți-construcții / alte terenuri</option>
-        <option value="Altele">Altele</option>
+        <option value="Curți-construcții">6 · Curți-construcții</option>
+        <option value="Alte terenuri">7 · Alte terenuri</option>
       </select>
     </div>
     <div class="filter-group">
@@ -405,7 +406,7 @@
         <h3>Parcele <button type="button" class="small ghost" id="btnAddParcela">+ Adaugă parcelă</button></h3>
         <div class="parcele-editor">
           <div class="parcela-headers">
-            <span>Tip</span><span>Categorie</span><span>Tarla</span><span>Parcelă</span><span>Suprafață (mp)</span>
+            <span>Nr.</span><span>Tip</span><span>Categorie</span><span>Tarla</span><span>Parcelă</span><span>Suprafață (mp)</span>
             <span>Nord</span><span>Est</span><span>Sud</span><span>Vest</span><span>Observații</span><span></span>
           </div>
           <div id="parceleContainer"></div>
@@ -698,9 +699,14 @@ async function extractFromPdf(file){
       lastExtractionResult = {ok:false, message: msg};
       return;
     }
-    applyExtractedData(json.data);
-    showAutofillStatus('Completat automat din scan — verifică datele înainte de salvare.', 'ok');
-    lastExtractionResult = {ok:true, message:''};
+    const warnings = applyExtractedData(json.data);
+    if(warnings.length){
+      showAutofillStatus('Completat automat, dar ATENȚIE: ' + warnings.join(' ') + ' Verifică suprafețele și liniile din tabel față de scan.', 'error');
+      lastExtractionResult = {ok:false, message:'de verificat: ' + warnings.join(' ')};
+    }else{
+      showAutofillStatus('Completat automat din scan — verifică datele înainte de salvare.', 'ok');
+      lastExtractionResult = {ok:true, message:''};
+    }
   }catch(e){
     if(myGen !== extractionGeneration) return;
     showAutofillStatus('Nu am putut completa automat acest fișier — introdu manual.', 'error');
@@ -732,6 +738,28 @@ function applyExtractedData(data){
       if(parcelObs.length) genObsField.value = parcelObs.join('; ');
     }
   }
+  return checkExtractedTotals(data);
+}
+
+// Compară suma suprafețelor parcelelor extrase cu totalurile tipărite în titlu (citite tot de AI).
+// Dacă nu coincid, a fost citită greșit o cifră sau a fost omisă o linie: întoarce avertismente pentru utilizator.
+function checkExtractedTotals(data){
+  const num = v => {
+    if(v === undefined || v === null || String(v).trim() === '') return null;
+    const n = Number(String(v).replace(/[\s.]/g, '').replace(',', '.'));
+    return Number.isFinite(n) ? n : null;
+  };
+  const ps = Array.isArray(data.parcele) ? data.parcele : [];
+  const sum = tip => ps.filter(p => !tip || (normalizeTip(p.tip) || 'Extravilan') === tip).reduce((a, p) => a + (num(p.suprafata) || 0), 0);
+  const fmt = n => n.toLocaleString('ro-RO') + ' mp';
+  const out = [];
+  for(const [tip, tot, label] of [['Extravilan', data.totalExtravilanMp, 'extravilan'], ['Intravilan', data.totalIntravilanMp, 'intravilan']]){
+    const t = num(tot);
+    if(t !== null && sum(tip) !== t) out.push(`Suma parcelelor din ${label} (${fmt(sum(tip))}) diferă de totalul din titlu (${fmt(t)}).`);
+  }
+  const g = num(data.totalGeneralMp);
+  if(g !== null && sum() !== g) out.push(`Suma tuturor parcelelor (${fmt(sum())}) diferă de totalul general din titlu (${fmt(g)}).`);
+  return out;
 }
 
 let currentPreviewFile = null;
@@ -856,11 +884,30 @@ function endBatch(finished){
   if(finished) alert('Import terminat.');
 }
 
+// Numerele rândurilor tipărite în titlu (NR. CRT.): rândul 6 e „Păduri” în tabelul de EXTRAVILAN și „Curți, construcții”
+// în cel de INTRAVILAN; rândul 7 e „Alte terenuri” în ambele.
 const CATEGORII = [
-  {value:'Arabil', nr:1}, {value:'Vii', nr:2}, {value:'Livezi', nr:3}, {value:'Pășuni', nr:4},
-  {value:'Fânețe', nr:5}, {value:'Păduri', nr:6}, {value:'Curți-construcții / alte terenuri', nr:7}, {value:'Altele', nr:'-'}
+  {value:'Arabil', nr:1}, {value:'Vii', nr:2}, {value:'Livezi', nr:3}, {value:'Pășuni', nr:4}, {value:'Fânețe', nr:5},
+  {value:'Păduri', nr:6}, {value:'Curți-construcții', nr:6}, {value:'Alte terenuri', nr:7}
 ];
-function nrCrtFor(cat){ const f = CATEGORII.find(c=>c.value===cat); return f ? f.nr : '-'; }
+function nrCrtFor(cat){ const f = CATEGORII.find(c=>c.value===normalizeCategorie(cat)); return f ? f.nr : '-'; }
+
+// Numerotarea parcelelor: nr. rândului din titlu + ordinea liniei în aceeași categorie și în același tabel
+// (extravilan / intravilan): prima linie de Arabil = 1.1, a doua = 1.2, prima de Fânețe = 5.1 etc.
+function parcelNumbers(parcele){
+  const counts = {};
+  return (parcele || []).map(p => {
+    const cat = normalizeCategorie(p.categorie);
+    if(!cat) return '';
+    const key = (normalizeTip(p.tip) || 'Extravilan') + '|' + cat;
+    counts[key] = (counts[key] || 0) + 1;
+    return nrCrtFor(cat) + '.' + counts[key];
+  });
+}
+function parcelNrOf(t, p){
+  const i = (t.parcele || []).indexOf(p);
+  return i >= 0 ? parcelNumbers(t.parcele)[i] : '';
+}
 
 // Potrivește categoria întoarsă de AI (ex. „Curți-construcții”, „curti constructii”, „Pasune”) cu una din valorile din listă;
 // altfel lista de categorii ar rămâne pe „—”. Întoarce '' dacă nu recunoaște nimic.
@@ -876,8 +923,8 @@ function normalizeCategorie(raw){
   if(/pasun/.test(t)) return 'Pășuni';
   if(/fane|fanat/.test(t)) return 'Fânețe';
   if(/padur/.test(t)) return 'Păduri';
-  if(/curt|constr|cladir|alte teren/.test(t)) return 'Curți-construcții / alte terenuri';
-  if(/altel|^alte\b/.test(t)) return 'Altele';
+  if(/curt|constr|cladir/.test(t)) return 'Curți-construcții';   // include și vechea valoare „Curți-construcții / alte terenuri”
+  if(/alte teren|neagric|altel|^alte\b/.test(t)) return 'Alte terenuri';
   return '';
 }
 function normalizeTip(raw){
@@ -1207,6 +1254,11 @@ async function loadData(){
       try{
         const snap = await fbDb.collection('titles').get();
         titles = snap.docs.map(d=>({...d.data(), id: d.id}));
+        // categoriile salvate cu denumirile vechi („Curți-construcții / alte terenuri”, „Altele”) se aduc la lista curentă
+        titles.forEach(t => (t.parcele || []).forEach(p => {
+          const c = normalizeCategorie(p.categorie); if(c) p.categorie = c;
+          const tp = normalizeTip(p.tip); if(tp) p.tip = tp;
+        }));
       }catch(e){
         titles = [];
         if(e.code === 'permission-denied'){
@@ -1374,7 +1426,7 @@ function render(){
       return `<div class="parcel-result" data-id="${t.id}">
         <input type="checkbox" class="row-checkbox sel-checkbox" data-key="parcel:${t.id}:${p.id}">
         <div class="top">
-          <span><span class="nrcrt-badge">Nr. crt. ${nrCrtFor(p.categorie)}</span><span class="cat-name">${escapeHtml(p.categorie)||'—'}</span><span class="tip-tag">${escapeHtml(p.tip)||''}</span></span>
+          <span><span class="nrcrt-badge">Nr. ${parcelNrOf(t,p)}</span><span class="cat-name">${escapeHtml(p.categorie)||'—'}</span><span class="tip-tag">${escapeHtml(p.tip)||''}</span></span>
           <span class="sup">${Number(p.suprafata||0).toLocaleString('ro-RO')} mp</span>
         </div>
         <div class="meta-line">Tarla ${escapeHtml(p.tarla)||'—'} · Parcelă ${escapeHtml(p.parcela)||'—'} ${p.observatii ? '· '+escapeHtml(p.observatii) : ''}</div>
@@ -1411,7 +1463,7 @@ function render(){
         <th>Categorie</th><th>Tip</th><th>Tarla</th><th>Parcelă</th><th>Suprafață</th><th>Vecinătăți</th><th>Obs.</th>
       </tr></thead><tbody>
       ${parcele.map(p=>`<tr>
-        <td><span class="nrcrt-badge">${nrCrtFor(p.categorie)}</span>${escapeHtml(p.categorie)||'—'}</td>
+        <td><span class="nrcrt-badge">${parcelNrOf(t,p)}</span>${escapeHtml(p.categorie)||'—'}</td>
         <td>${escapeHtml(p.tip)||'—'}</td>
         <td>${escapeHtml(p.tarla)||'—'}</td>
         <td>${escapeHtml(p.parcela)||'—'}</td>
@@ -1484,6 +1536,7 @@ function addParcelaRow(p={}){
   const tip = normalizeTip(p.tip);
   const catOptions = CATEGORII.map(c=>`<option value="${c.value}" ${cat===c.value?'selected':''}>${c.nr} · ${c.value}</option>`).join('');
   row.innerHTML = `
+    <span class="p_nr" title="Nr. rândului din titlu + ordinea liniei în categorie"></span>
     <select class="p_tip">
       <option ${tip==='Extravilan'||!tip?'selected':''}>Extravilan</option>
       <option ${tip==='Intravilan'?'selected':''}>Intravilan</option>
@@ -1499,9 +1552,19 @@ function addParcelaRow(p={}){
     <input type="text" class="p_observatii" value="${escapeHtml(p.observatii)}">
     <button type="button" class="row-del">✕</button>
   `;
-  row.querySelector('.row-del').addEventListener('click', ()=>{ row.remove(); updateTotalsLine(); });
+  row.querySelector('.row-del').addEventListener('click', ()=>{ row.remove(); updateTotalsLine(); renumberParcelRows(); });
   row.querySelector('.p_suprafata').addEventListener('input', updateTotalsLine);
+  row.querySelector('.p_tip').addEventListener('change', renumberParcelRows);
+  row.querySelector('.p_categorie').addEventListener('change', renumberParcelRows);
   document.getElementById('parceleContainer').appendChild(row);
+  renumberParcelRows();
+}
+
+// Pune în formular numerele parcelelor (1.1, 1.2, 5.1 ...), recalculate la orice schimbare de tip/categorie sau rând.
+function renumberParcelRows(){
+  const rows = [...document.querySelectorAll('#parceleContainer .parcela-row')];
+  const nums = parcelNumbers(rows.map(r => ({tip: r.querySelector('.p_tip').value, categorie: r.querySelector('.p_categorie').value})));
+  rows.forEach((r, i) => { r.querySelector('.p_nr').textContent = nums[i]; });
 }
 
 function updateTotalsLine(){
@@ -1812,7 +1875,7 @@ function buildExportRow(t, p){
     'Număr titlu': t.numarTitlu || '', 'Data titlu': isoToRo(t.dataEmiterii) || '', 'Adresă': buildAdresa(t),
     'Cetățean': t.cetatean || '', 'Numele defunctului': t.defunct || '', 'Moștenitori': t.mostenitori || '',
     'Sat (parcelă)': t.satAmplasament || '', 'Comuna (parcelă)': t.comunaAmplasament || '',
-    'Tip': p?.tip || '', 'Categorie': p?.categorie || '', 'Nr. crt.': p?.categorie ? nrCrtFor(p.categorie) : '',
+    'Tip': p?.tip || '', 'Categorie': p?.categorie || '', 'Nr. crt.': p?.categorie ? parcelNrOf(t,p) : '',
     'Tarla': p?.tarla || '', 'Parcelă': p?.parcela || '', 'Suprafață (mp)': p?.suprafata || '',
     'Vecin Nord': p?.vecinN || '', 'Vecin Est': p?.vecinE || '', 'Vecin Sud': p?.vecinS || '', 'Vecin Vest': p?.vecinV || '',
     'Observații parcelă': p?.observatii || '', 'Observații generale': t.observatii || ''
@@ -1853,7 +1916,7 @@ document.getElementById('btnExport').addEventListener('click', ()=>{
   titles.forEach(t=>{
     const base = [t.numarTitlu,t.cod,t.judet,isoToRo(t.dataEmiterii),t.cetatean,t.defunct,t.mostenitori,t.sat,t.comuna];
     (t.parcele && t.parcele.length ? t.parcele : [{}]).forEach(p=>{
-      const line = [...base, p.tip||'', p.categorie||'', nrCrtFor(p.categorie), p.tarla||'', p.parcela||'', p.suprafata||'', p.vecinN||'', p.vecinE||'', p.vecinS||'', p.vecinV||'', p.observatii||'', t.observatii||''];
+      const line = [...base, p.tip||'', p.categorie||'', parcelNrOf(t,p), p.tarla||'', p.parcela||'', p.suprafata||'', p.vecinN||'', p.vecinE||'', p.vecinS||'', p.vecinV||'', p.observatii||'', t.observatii||''];
       rows.push(line.map(v=>'"'+String(v??'').replace(/"/g,'""')+'"').join(','));
     });
   });
