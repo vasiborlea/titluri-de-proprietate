@@ -17,6 +17,7 @@ Răspunde DOAR cu acest JSON, fără text suplimentar, fără fence-uri de cod:
 Reguli:
 - dataEmiterii: pe titlurile românești, data e scrisă întotdeauna ca ZI.LUNĂ.AN (ex: "08.09.2006" înseamnă ziua 8, luna 9 — septembrie — NU luna 8/august). Nu presupune formatul american lună-zi-an. Convertește mereu în format YYYY-MM-DD (an-lună-zi) păstrând corect ziua și luna citite.
 - suprafata doar cifre, în mp (dacă e dat în ha și mp, convertește tot în mp).
+- categorie: scrie EXACT una din valorile din listă, fără altă formulare (rândul „Curți, construcții” din tabel se scrie „Curți-construcții / alte terenuri”). Dacă rândul are suprafață completată, nu lăsa categoria goală.
 - Dacă un câmp nu poate fi descifrat cu certitudine (scris neclar, șters, ambiguu), lasă-l gol ("") — nu ghici și nu inventa valori.
 - Include câte un obiect în "parcele" pentru fiecare linie din tabelul de suprafețe (atât extravilan cât și intravilan, dacă există).
 - Coloana OBSERVAȚII de lângă fiecare parcelă conține adesea nume de loc sau note (ex: "sub Făget", "Văgaș", "grădina casei", "DOS", "hirește", "după văgaș", "sub cot"). E ULTIMA coloană din tabel, uneori îngustă sau cu scris foarte mărunt/prescurtat — verific-o cu atenție maximă pentru FIECARE rând de parcelă, chiar dacă alte rânduri din același tabel nu au nimic scris acolo. Nu lăsa gol acest câmp doar pentru că e greu de citit — încearcă activ să descifrezi, și lasă gol doar dacă e cu adevărat ilizibil sau vizual gol.

@@ -862,6 +862,29 @@ const CATEGORII = [
 ];
 function nrCrtFor(cat){ const f = CATEGORII.find(c=>c.value===cat); return f ? f.nr : '-'; }
 
+// Potrivește categoria întoarsă de AI (ex. „Curți-construcții”, „curti constructii”, „Pasune”) cu una din valorile din listă;
+// altfel lista de categorii ar rămâne pe „—”. Întoarce '' dacă nu recunoaște nimic.
+function normalizeCategorie(raw){
+  const s = String(raw ?? '').trim();
+  if(!s) return '';
+  const exact = CATEGORII.find(c => c.value === s);
+  if(exact) return exact.value;
+  const t = s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '');   // fără diacritice
+  if(/arab/.test(t)) return 'Arabil';
+  if(/\bvii\b|\bvie\b|vita/.test(t)) return 'Vii';
+  if(/livez|livad|pomi/.test(t)) return 'Livezi';
+  if(/pasun/.test(t)) return 'Pășuni';
+  if(/fane|fanat/.test(t)) return 'Fânețe';
+  if(/padur/.test(t)) return 'Păduri';
+  if(/curt|constr|cladir|alte teren/.test(t)) return 'Curți-construcții / alte terenuri';
+  if(/altel|^alte\b/.test(t)) return 'Altele';
+  return '';
+}
+function normalizeTip(raw){
+  const t = String(raw ?? '').toLowerCase();
+  return t.includes('intra') ? 'Intravilan' : (t.includes('extra') ? 'Extravilan' : '');
+}
+
 const DB_NAME = 'CadastruTitluriDB';
 let dbInstance = null;
 function openDB(){
@@ -1457,11 +1480,13 @@ function addParcelaRow(p={}){
   const row = document.createElement('div');
   row.className = 'parcela-row';
   row.dataset.pid = p.id || uid();
-  const catOptions = CATEGORII.map(c=>`<option value="${c.value}" ${p.categorie===c.value?'selected':''}>${c.nr} · ${c.value}</option>`).join('');
+  const cat = normalizeCategorie(p.categorie);
+  const tip = normalizeTip(p.tip);
+  const catOptions = CATEGORII.map(c=>`<option value="${c.value}" ${cat===c.value?'selected':''}>${c.nr} · ${c.value}</option>`).join('');
   row.innerHTML = `
     <select class="p_tip">
-      <option ${p.tip==='Extravilan'||!p.tip?'selected':''}>Extravilan</option>
-      <option ${p.tip==='Intravilan'?'selected':''}>Intravilan</option>
+      <option ${tip==='Extravilan'||!tip?'selected':''}>Extravilan</option>
+      <option ${tip==='Intravilan'?'selected':''}>Intravilan</option>
     </select>
     <select class="p_categorie"><option value="">—</option>${catOptions}</select>
     <input type="text" class="p_tarla" value="${escapeHtml(p.tarla)}">
