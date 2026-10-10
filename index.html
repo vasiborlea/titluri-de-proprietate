@@ -1735,7 +1735,9 @@ async function rescanTitle(id){
   else{ showAutofillStatus('Nu mai există scanul original pentru acest titlu — completează manual.', 'error'); }
 }
 
-function gatherFormData(){
+// verifiedByUser = true când titlul se salvează manual (apăsând „Salvează”): utilizatorul a văzut avertismentele și acceptă datele,
+// deci titlul iese din fila „Erori”. La salvarea automată din importul în masă starea „eroare” se păstrează, ca să fie verificat ulterior.
+function gatherFormData(verifiedByUser = false){
   const val = id => document.getElementById(id).value.trim();
   const parcele = [...document.querySelectorAll('#parceleContainer .parcela-row')].map(row=>({
     id: row.dataset.pid || uid(),
@@ -1765,8 +1767,8 @@ function gatherFormData(){
     pdfBlob: (currentPreviewFile && !Array.isArray(currentPreviewFile) ? currentPreviewFile : undefined) || existing?.pdfBlob || undefined,
     scanPages: existing?.scanPages || undefined,
     pdfParts: existing?.pdfParts || undefined,
-    extractionStatus: lastExtractionResult ? (lastExtractionResult.ok ? 'ok' : 'eroare') : (existing?.extractionStatus),
-    extractionError: lastExtractionResult ? (lastExtractionResult.ok ? '' : lastExtractionResult.message) : (existing?.extractionError)
+    extractionStatus: verifiedByUser ? 'ok' : (lastExtractionResult ? (lastExtractionResult.ok ? 'ok' : 'eroare') : (existing?.extractionStatus)),
+    extractionError: verifiedByUser ? '' : (lastExtractionResult ? (lastExtractionResult.ok ? '' : lastExtractionResult.message) : (existing?.extractionError))
   };
 }
 
@@ -1784,7 +1786,7 @@ async function autoSaveAndAdvance(myBatchGen){
 document.getElementById('titleForm').addEventListener('submit', async (e)=>{
   e.preventDefault();
   if(batchActive) batchGeneration++;
-  const data = gatherFormData();
+  const data = gatherFormData(true);
   if(!data.numarTitlu) data.numarTitlu = '(fără număr)';
 
   if(!batchActive && !editingId && data.numarTitlu !== '(fără număr)'){
