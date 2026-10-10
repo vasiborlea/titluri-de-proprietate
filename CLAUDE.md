@@ -28,8 +28,10 @@ Aplicație web (în română) pentru evidența titlurilor de proprietate române
 - Limita Netlify pentru funcții sincrone e 10 s: titlurile mari se pot apropia de ea. Dacă apare „eroare server 504”, ridică limita în Netlify (Site configuration → Functions).
 - Structura formularului din titlu (în promptul funcției): tabelul A = extravilan, B = intravilan. Rândurile tipărite: 1 Arabil, 2 Vii, 3 Livezi, 4 Pășuni, 5 Fânețe, **6 Păduri (extravilan) / Curți-construcții (intravilan)**, 7 Alte terenuri. Suprafața = Ha × 10000 + mp (două coloane).
 - Categoriile din aplicație: `CATEGORII` în `index.html` (aceleași valori ca în prompt). `normalizeCategorie` acceptă variante și valorile vechi („Curți-construcții / alte terenuri”, „Altele”).
-- Numerotarea parcelelor (`parcelNumbers`): nr. rândului din titlu + ordinea liniei în aceeași categorie și același tabel: 1.1, 1.2, 5.1... Se calculează la afișare/export, nu se salvează.
-- După autocompletare, `checkExtractedTotals` compară suma parcelelor cu totalurile citite din titlu (extravilan, intravilan, general) și verifică ordinea crescătoare a categoriilor; la nepotrivire, utilizatorul e avertizat, iar titlul apare în „Erori” dacă se salvează în importul în masă.
+- Numerotarea parcelelor (`parcelNumbers`): litera tabelului (A = extravilan, B = intravilan) + nr. rândului din titlu + ordinea liniei în aceeași categorie și același tabel: A1.1, A1.2, B5.1... Se calculează la afișare/export, nu se salvează.
+- Câmpul „Suprafață totală din titlu (mp)” (`suprafataTotala` pe titlu, `f_suprafataTotala` în formular) vine din prima pagină („suprafață totală de … ha … mp”, convertită în mp) și se compară în formular cu suma parcelelor.
+- După autocompletare, `checkExtractedTotals` compară suma parcelelor cu totalul din prima pagină și cu totalurile din tabele (extravilan, intravilan) și verifică ordinea crescătoare a categoriilor; la nepotrivire, `extractFromPdf` face automat o A DOUA CITIRE (`retry` în `extract.mjs`: modelul primește prima citire și problemele concrete și recitește liniile respective). Dacă tot rămân neconcordanțe, utilizatorul e avertizat, iar titlul apare în „Erori” la importul în masă. Fiecare apel trebuie să rămână sub 10 s (limita Netlify; pe planul Personal nu se poate ridica).
+- Datele: se afișează ca zi.lună.an (ex. 05.07.1993) și se salvează ISO (an-lună-zi) în `dataEmiterii`, cu `dataFormat: 2`. Titlurile mai vechi, salvate cu ziua și luna inversate (bug în `roToIso`), se corectează la încărcare prin `fixLegacyDate`.
 
 ## Securitate (de păstrat)
 
